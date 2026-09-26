@@ -4,3 +4,5 @@
 #access-key{width:100%;max-width:360px;padding:14px;font-size:16px}#access-form{margin-top:25px}
 
 .management-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}.management-actions .danger{border-color:#dd1222;color:#b61020}.sale-status{display:inline-block;font-size:10px;border-radius:4px;background:#eef2f6;padding:2px 7px;margin:4px 0}.sale-status.cancelled,.sale-status.deleted{color:#a42d22;background:#fff0ed}#receipt-image{display:block;max-width:100%;height:auto;margin:auto}#receipt-dialog{max-width:900px}#edit-sale-dialog{max-width:620px}#edit-sale-form label{margin-bottom:14px}#edit-sale-form input,#edit-sale-form textarea,#edit-sale-form select{width:100%}textarea{font:inherit;border:1px solid #d9dce2;border-radius:6px;padding:12px;margin-top:7px}.edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}fieldset{border:0;margin:0;padding:0;min-width:0}#edit-error,#action-error{font-size:13px;color:#b61020}#sale-action-dialog p{font-size:14px;line-height:1.65}
+
+.sale-status.pending{background:#fff0c7;color:#825200}.sale-status.approved{background:#def5e5;color:#176137}.tabs{flex-wrap:wrap}#detail-fields dd{overflow-wrap:anywhere}
