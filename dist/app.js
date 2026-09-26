@@ -25,7 +25,7 @@ start();
 
 let editing,actionPending,editRequest,editPayload,managementBusy=false,receiptGeneration=0;
 function managementError(error){return error.code==='functions/aborted'?'La venta fue modificada. Cierra y actualiza el historial para cargar su versión actual.':error.code==='functions/invalid-argument'?'Revisa vendedor, datos del cliente, importes y comprobante.':error.message&&!error.code?error.message:errorMessage(error);}
-async function reloadAfterChange(){ $('detail-dialog').close();await loadOverview();if(overview)await loadHistory(); }
+async function reloadAfterChange(){ rows=[];cursor=null;renderHistory(rows,$('currency').value);$('history-state').textContent='Actualizando…';$('detail-dialog').close();await loadOverview();if(overview)await loadHistory(); }
 document.addEventListener('owner:receipt',async e=>{
  const stamp=++receiptGeneration;$('receipt-image').hidden=true;$('receipt-image').removeAttribute('src');$('receipt-state').textContent='Cargando comprobante…';$('receipt-dialog').showModal();
  try{const {data}=await api('ownerReceipt')({saleId:e.detail.item.id});if(stamp!==receiptGeneration||!$('receipt-dialog').open)return;if(!['image/jpeg','image/png','image/webp'].includes(data.contentType))throw new Error('Imagen no disponible.');$('receipt-image').src=`data:${data.contentType};base64,${data.base64}`;$('receipt-image').hidden=false;$('receipt-state').textContent='';}catch(error){if(stamp===receiptGeneration)$('receipt-state').textContent=managementError(error);}
