@@ -1,6 +1,6 @@
 import {receiptFile} from './receipt-file.js';
 import {firebaseConfig,region,appCheckSiteKey} from './config.js';
-import {renderOverview,renderHistory,renderSellers} from './render.js?v=5';
+import {renderOverview,renderHistory,renderSellers} from './render.js?v=6';
 const $=id=>document.getElementById(id);
 let auth,authApi,api,overview,rows=[],cursor=null,kind='pending',generation=0,historyGeneration=0;
 function notice(text,error=false){$('notice').textContent=text;$('notice').classList.toggle('error',error);}
@@ -33,7 +33,7 @@ document.addEventListener('owner:receipt',async e=>{
 $('close-receipt').addEventListener('click',()=>{receiptGeneration++;$('receipt-dialog').close();$('receipt-image').removeAttribute('src');});
 document.addEventListener('owner:edit',e=>{
  editing=e.detail.item;editRequest=undefined;editPayload=undefined;$('edit-sale-form').reset();$('edit-error').textContent='';
- const fields={url:editing.productUrl||'',seller:editing.seller||'',product:editing.product,cost:(editing.costCents/100).toFixed(2),weight:String(editing.weightGrams/1000),rate:(editing.exchangeRateCents/100).toFixed(2),origin:editing.shippingOrigin||'USA',phone:editing.customer?.phone||'',name:editing.customer?.name||'',address:editing.customer?.address||''};
+ const fields={discount:String(editing.discountPercent??0),url:editing.productUrl||'',seller:editing.seller||'',product:editing.product,cost:(editing.costCents/100).toFixed(2),weight:String(editing.weightGrams/1000),rate:(editing.exchangeRateCents/100).toFixed(2),origin:editing.shippingOrigin||'USA',phone:editing.customer?.phone||'',name:editing.customer?.name||'',address:editing.customer?.address||''};
  for(const [key,value] of Object.entries(fields))$('edit-'+key).value=value;
  $('edit-sale-dialog').showModal();
 });
@@ -41,7 +41,7 @@ $('close-edit').addEventListener('click',()=>{if(!managementBusy)$('edit-sale-di
 $('edit-sale-dialog').addEventListener('cancel',e=>{if(managementBusy)e.preventDefault();});
 $('edit-sale-form').addEventListener('submit',async e=>{
  e.preventDefault();if(managementBusy)return;managementBusy=true;$('edit-fields').disabled=true;$('close-edit').disabled=true;$('edit-error').textContent='Guardando…';
- try{const clean=id=>$('edit-'+id).value.trim().replace(',','.');const values={productUrl:$('edit-url').value.trim(),seller:$('edit-seller').value.trim(),product:$('edit-product').value.trim(),cost:clean('cost'),weight:clean('weight'),exchangeRate:clean('rate'),shippingOrigin:$('edit-origin').value,customer:{phone:$('edit-phone').value.trim(),name:$('edit-name').value.trim(),address:$('edit-address').value.trim()}};
+ try{const clean=id=>$('edit-'+id).value.trim().replace(',','.');const values={discountPercent:Number($('edit-discount').value),productUrl:$('edit-url').value.trim(),seller:$('edit-seller').value.trim(),product:$('edit-product').value.trim(),cost:clean('cost'),weight:clean('weight'),exchangeRate:clean('rate'),shippingOrigin:$('edit-origin').value,customer:{phone:$('edit-phone').value.trim(),name:$('edit-name').value.trim(),address:$('edit-address').value.trim()}};
  const receipt=await receiptFile($('edit-receipt').files[0]);const payload=JSON.stringify({saleId:editing.id,action:'edit',version:editing.version??0,values,receipt});if(payload!==editPayload){editPayload=payload;editRequest=crypto.randomUUID();}
  await api('ownerChangeSale')({...JSON.parse(payload),actionId:editRequest});$('edit-sale-dialog').close();await reloadAfterChange();notice('Venta actualizada.');
  }catch(error){$('edit-error').textContent=managementError(error);}finally{managementBusy=false;$('edit-fields').disabled=false;$('close-edit').disabled=false;}
