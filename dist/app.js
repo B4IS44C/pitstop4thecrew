@@ -1,6 +1,6 @@
 import {receiptFile} from './receipt-file.js';
 import {firebaseConfig,region,appCheckSiteKey} from './config.js';
-import {renderOverview,renderHistory,renderSellers} from './render.js?v=7';
+import {renderOverview,renderHistory,renderSellers} from './render.js?v=8';
 const $=id=>document.getElementById(id);
 let auth,authApi,api,overview,rows=[],cursor=null,kind='pending',generation=0,historyGeneration=0;
 function notice(text,error=false){$('notice').textContent=text;$('notice').classList.toggle('error',error);}
@@ -24,7 +24,7 @@ async function start(){try{const base='https://www.gstatic.com/firebasejs/12.19.
 start();
 
 let editing,actionPending,editRequest,editPayload,managementBusy=false,receiptGeneration=0;
-function managementError(error){return error.code==='functions/aborted'?'La venta fue modificada. Cierra y actualiza el historial para cargar su versión actual.':error.code==='functions/invalid-argument'?'Revisa vendedor, datos del cliente, importes y comprobante.':error.message&&!error.code?error.message:errorMessage(error);}
+function managementError(error){return error.code==='functions/aborted'?'El registro fue modificado. Cierra y actualiza el historial para cargar su versión actual.':error.code==='functions/invalid-argument'?'Revisa vendedor, datos del cliente, importes y comprobante.':error.message&&!error.code?error.message:errorMessage(error);}
 async function reloadAfterChange(){ rows=[];cursor=null;renderHistory(rows,$('currency').value);$('history-state').textContent='Actualizando…';$('detail-dialog').close();await loadOverview();if(overview){await loadHistory();if($('seller-sales-dialog').open)await loadSellerSales(true);} }
 document.addEventListener('owner:receipt',async e=>{
  const stamp=++receiptGeneration;$('receipt-image').hidden=true;$('receipt-image').removeAttribute('src');$('receipt-state').textContent='Cargando comprobante…';$('receipt-dialog').showModal();
@@ -56,7 +56,7 @@ $('action-back').addEventListener('click',()=>{if(!managementBusy)$('sale-action
 $('sale-action-dialog').addEventListener('cancel',e=>{if(managementBusy)e.preventDefault();});
 $('action-confirm').addEventListener('click',async()=>{
  if(managementBusy)return;managementBusy=true;$('action-confirm').disabled=true;$('action-back').disabled=true;
- try{await api('ownerChangeSale')(actionPending);$('sale-action-dialog').close();await reloadAfterChange();notice('Estado de venta actualizado.');}catch(error){$('action-error').textContent=managementError(error);}finally{managementBusy=false;$('action-confirm').disabled=false;$('action-back').disabled=false;}
+ try{const calculation=actionPending.calculationId;await api(calculation?'ownerDeleteCalculation':'ownerChangeSale')(actionPending);$('sale-action-dialog').close();await reloadAfterChange();notice(calculation?'Cálculo eliminado.':'Estado de venta actualizado.');}catch(error){$('action-error').textContent=managementError(error);}finally{managementBusy=false;$('action-confirm').disabled=false;$('action-back').disabled=false;}
 });
 
 let sellerSelection=null,sellerSalesRows=[],sellerSalesCursor=null,sellerSalesGeneration=0,sellerSalesBusy=false;
@@ -89,3 +89,11 @@ async function loadSellerSales(reset=true){
  }catch(error){if(stamp===sellerSalesGeneration){$('seller-sales-state').textContent=errorMessage(error);if(error.code==='functions/permission-denied'){clearPrivate();$('login-panel').hidden=false;}else{$('seller-sales-more').hidden=false;$('seller-sales-more').textContent='Reintentar';}}}
  finally{if(stamp===sellerSalesGeneration)sellerSalesBusy=false;}
 }
+
+document.addEventListener('owner:delete-calculation',e=>{
+ if(managementBusy)return;
+ const item=e.detail.item;actionPending={calculationId:item.id,quoteVersion:item.quoteVersion??0};
+ $('action-title').textContent='Eliminar cálculo';
+ $('action-message').textContent=`${item.product}. Se quitará del historial y de la búsqueda de cotizaciones. Si tiene una venta asociada, esa venta y sus importes se conservarán.`;
+ $('action-error').textContent='';$('sale-action-dialog').showModal();
+});

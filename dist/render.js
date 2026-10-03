@@ -41,5 +41,6 @@ function showDetail(item){const fields=$('detail-fields');fields.replaceChildren
   if(item.status!=='deleted')add('Eliminar venta','owner:action','delete');
   if(['cancelled','deleted'].includes(item.status))add(item.status==='deleted'?'Restaurar venta':'Reactivar venta','owner:action','restore');
  }
+ if(item.kind==='calculations'){const button=document.createElement('button');button.textContent='Eliminar cálculo';button.className='danger';button.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('owner:delete-calculation',{detail:{item}})));actions.append(button);}
  $('detail-dialog').showModal();}
 $('close-detail').addEventListener('click',()=>{$('detail-dialog').close();});
