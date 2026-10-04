@@ -1,4 +1,4 @@
-import {initTestimonials} from './testimonials.js?v=20261004c';
+import {initTestimonials} from './testimonials.js?v=20261004d';
 import {receiptFile} from './receipt-file.js';
 import {firebaseConfig,region,appCheckSiteKey} from './config.js';
 import {renderOverview,renderHistory,renderSellers} from './render.js?v=8';
