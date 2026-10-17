@@ -1,3 +1,66 @@
+// outputs/pitstop-owner/dist/payment-editor.js
+function initPaymentEditor({ call, onSaved }) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "multi-dialog";
+  dialog.innerHTML = '<form><div class="multi-heading"><h2>Editar monto abonado</h2><button type="button" data-close aria-label="Cerrar">\xD7</button></div><p data-info></p><label>Monto abonado (opcional)<input data-amount inputmode="decimal" maxlength="15" placeholder="En blanco: adelanto del 20%"></label><p>Escribe el total pagado por el cliente, no solo la diferencia. Deja vac\xEDo para usar el adelanto habitual del 20%. El comprobante recuperado mostrar\xE1 el nuevo saldo.</p><p data-preview class="multi-totals" aria-live="polite"></p><button type="submit" class="button">Guardar abono</button><p data-error role="alert"></p></form>';
+  document.body.append(dialog);
+  const $3 = (s) => dialog.querySelector(s);
+  let sale, busy = false, requestId, payloadKey;
+  const money2 = (n) => new Intl.NumberFormat("es-CR", { style: "currency", currency: sale.paymentDocument?.currency || "CRC" }).format(n / 100);
+  function preview() {
+    const d = sale.paymentDocument, currency = d?.currency || "CRC", total = d?.totalMinor ?? (currency === "USD" ? sale.totalCents : sale.totalCrcMinor), fallback = d?.defaultPaidMinor ?? d?.paidMinor ?? (currency === "USD" ? Math.round(total / 5) : Math.min(total, Math.ceil(total / 5e5) * 1e5)), raw = $3("[data-amount]").value.trim().replace(",", "."), paid = raw ? Math.round(Number(raw) * 100) : fallback, valid = (!raw || /^\d{1,12}(?:\.\d{1,2})?$/.test(raw)) && Number.isSafeInteger(paid) && paid >= 0 && paid <= total;
+    $3("[data-amount]").setCustomValidity(valid ? "" : "El abono debe estar entre cero y el total.");
+    $3("[data-preview]").textContent = valid ? `Total: ${money2(total)} \xB7 Abonado: ${money2(paid)} \xB7 Pendiente: ${money2(total - paid)}` : "Revisa el monto abonado.";
+  }
+  $3("[data-amount]").oninput = preview;
+  $3("[data-close]").onclick = () => {
+    if (!busy) dialog.close();
+  };
+  dialog.addEventListener("cancel", (e) => {
+    if (busy) e.preventDefault();
+  });
+  $3("form").onsubmit = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    busy = true;
+    $3("button[type=submit]").disabled = true;
+    $3("[data-amount]").disabled = true;
+    try {
+      const paidAmount = $3("[data-amount]").value.trim();
+      if (payloadKey !== paidAmount) {
+        payloadKey = paidAmount;
+        requestId = crypto.randomUUID();
+      }
+      await call("ownerChangeSale", { saleId: sale.id, version: sale.version ?? 0, action: "payment", actionId: requestId, paidAmount });
+      dialog.close();
+      await onSaved();
+    } catch (e2) {
+      $3("[data-error]").textContent = e2.message || "No se pudo guardar el abono.";
+    } finally {
+      busy = false;
+      $3("button[type=submit]").disabled = false;
+      $3("[data-amount]").disabled = false;
+    }
+  };
+  const open = (item) => {
+    sale = item;
+    requestId = null;
+    payloadKey = null;
+    $3("[data-error]").textContent = "";
+    $3("[data-info]").textContent = item.product + " \xB7 Moneda: " + (item.paymentDocument?.currency || "CRC");
+    $3("[data-amount]").value = item.paymentDocument?.customPayment ? (item.paymentDocument.paidMinor / 100).toFixed(2) : "";
+    preview();
+    dialog.showModal();
+  };
+  open.close = () => {
+    dialog.close();
+    $3("form").reset();
+    $3("[data-info]").textContent = "";
+    $3("[data-preview]").textContent = "";
+  };
+  return open;
+}
+
 // outputs/pitstop-owner/dist/multiple-pdf.js?v=20261015
 async function multiplePaymentPdf(q) {
   const logo = new Image();
@@ -61,7 +124,7 @@ async function multiplePaymentPdf(q) {
     c.fillRect(70, y - 28, 1060, 48);
     text("REPUESTO", 85, y, 21, true);
     text("TOTAL", 760, y, 21, true, true);
-    text("ADELANTO 20%", 950, y, 21, true, true);
+    text(q.customPayment ? "ABONADO" : "ADELANTO 20%", 950, y, 21, true, true);
     text("SALDO", 1120, y, 21, true, true);
     y += 55;
   }
@@ -86,7 +149,7 @@ async function multiplePaymentPdf(q) {
     await finish();
     page();
   }
-  for (const [label, value] of [["Env\xEDo GRATIS (0%)", 0], ["Total de la compra", q.totalMinor], ["Adelanto recibido \xB7 20%", q.paidMinor], ["Saldo pendiente", q.balanceMinor]]) {
+  for (const [label, value] of [["Env\xEDo GRATIS (0%)", 0], ["Total de la compra", q.totalMinor], [q.customPayment ? "Monto abonado" : "Adelanto recibido \xB7 20%", q.paidMinor], ["Saldo pendiente", q.balanceMinor]]) {
     text(label, 85, y, 28, true);
     text(crc(value), 1120, y, 30, true, true);
     y += 65;
@@ -263,7 +326,7 @@ async function paymentPdf(q) {
   text(crc(q.totalMinor), 1108, y + 50, 32, "#202126", true, true);
   y += 92;
   box(70, y, 1060, 125, "#101114");
-  text("MONTO PAGADO \xB7 ADELANTO 20%", 94, y + 43, 24, "#fff", true);
+  text(q.customPayment ? "MONTO ABONADO" : "MONTO PAGADO \xB7 ADELANTO 20%", 94, y + 43, 24, "#fff", true);
   text(crc(q.paidMinor), 1106, y + 94, 48, "#fff", true, true);
   y += 150;
   box(70, y, 1060, 90, "#fff0f1");
@@ -301,7 +364,7 @@ function initMultipleSale({ call, context = () => ({}), check = () => true, owne
   const dialog = document.createElement("dialog");
   dialog.className = "multi-dialog";
   dialog.setAttribute("aria-label", owner ? "Editar venta m\xFAltiple" : "Generar venta m\xFAltiple");
-  dialog.innerHTML = `<div class="multi-heading"><h2>${owner ? "Editar" : "Generar"} venta m\xFAltiple</h2><button type="button" data-close aria-label="Cerrar">\xD7</button></div><p>Selecciona las cotizaciones del mismo cliente. El adelanto y el saldo se suman por producto.</p><form data-search><label>Tel\xE9fono del cliente<input data-phone type="tel" required placeholder="+506 8888 8888"></label><button class="button" type="submit">Buscar cotizaciones</button></form><label>Filtrar por nombre del repuesto<input data-filter type="search" placeholder="Nombre del repuesto"></label><div data-list class="multi-list"></div><button type="button" data-more hidden>Ver m\xE1s cotizaciones</button><div data-totals class="multi-totals" aria-live="polite"></div><form data-save><fieldset data-fields><label class="payment-currency-choice"><input data-usd type="checkbox"> Pagado en d\xF3lares <small>El comprobante completo se emitir\xE1 en USD.</small></label>${owner ? "" : '<label>Nombre del cliente (opcional)<input data-name maxlength="120"></label><label>Direcci\xF3n de entrega<textarea data-address required maxlength="1000" rows="2"></textarea></label><label>Comprobante de pago (opcional)<input data-receipt type="file" accept="image/jpeg,image/png,image/webp"></label>'}<p>${owner ? "Los importes, el PDF y el seguimiento se actualizar\xE1n. Se conserva el c\xF3digo." : "Estas cotizaciones se convertir\xE1n en una sola venta por aprobar."}</p><button type="submit" class="button" data-submit>${owner ? "Guardar cambios" : "Crear venta m\xFAltiple y PDF"}</button></fieldset></form><p data-status role="status"></p><div data-success hidden><label>C\xF3digo de seguimiento<input data-code readonly></label><button type="button" data-copy>Copiar c\xF3digo</button><button type="button" data-pdf>Descargar PDF nuevamente</button></div>`;
+  dialog.innerHTML = `<div class="multi-heading"><h2>${owner ? "Editar" : "Generar"} venta m\xFAltiple</h2><button type="button" data-close aria-label="Cerrar">\xD7</button></div><p>Selecciona las cotizaciones del mismo cliente. El adelanto y el saldo se suman por producto.</p><form data-search><label>Tel\xE9fono del cliente<input data-phone type="tel" required placeholder="+506 8888 8888"></label><button class="button" type="submit">Buscar cotizaciones</button></form><label>Filtrar por nombre del repuesto<input data-filter type="search" placeholder="Nombre del repuesto"></label><div data-list class="multi-list"></div><button type="button" data-more hidden>Ver m\xE1s cotizaciones</button><div data-totals class="multi-totals" aria-live="polite"></div><form data-save><fieldset data-fields><label class="payment-currency-choice"><input data-usd type="checkbox"> Pagado en d\xF3lares <small>El comprobante completo se emitir\xE1 en USD.</small></label><label class="paid-field">Monto abonado (opcional)<input data-paid inputmode="decimal" maxlength="15" placeholder="En blanco: adelanto del 20%"><small data-paid-hint>Es el total pagado, no solo la diferencia.</small></label>${owner ? "" : '<label>Nombre del cliente (opcional)<input data-name maxlength="120"></label><label>Direcci\xF3n de entrega<textarea data-address required maxlength="1000" rows="2"></textarea></label><label>Comprobante de pago (opcional)<input data-receipt type="file" accept="image/jpeg,image/png,image/webp"></label>'}<p>${owner ? "Los importes, el PDF y el seguimiento se actualizar\xE1n. Se conserva el c\xF3digo." : "Estas cotizaciones se convertir\xE1n en una sola venta por aprobar."}</p><button type="submit" class="button" data-submit>${owner ? "Guardar cambios" : "Crear venta m\xFAltiple y PDF"}</button></fieldset></form><p data-status role="status"></p><div data-success hidden><label>C\xF3digo de seguimiento<input data-code readonly></label><button type="button" data-copy>Copiar c\xF3digo</button><button type="button" data-pdf>Descargar PDF nuevamente</button></div>`;
   document.body.append(dialog);
   const $3 = (s) => dialog.querySelector(s), money2 = (n) => $3("[data-usd]").checked ? "US$ " + new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n / 100) : "\u20A1" + new Intl.NumberFormat("es-CR").format(n / 100);
   let selected = /* @__PURE__ */ new Map(), rows2 = /* @__PURE__ */ new Map(), cursor2 = null, phone = "", sale = null, busy = false, requestId, documentData;
@@ -326,9 +389,12 @@ function initMultipleSale({ call, context = () => ({}), check = () => true, owne
       label.append(input, span);
       list.append(label);
     }
-    const values = [...selected.values()], total = values.reduce((n, r) => n + ($3("[data-usd]").checked ? r.totalCents : r.totalMinor), 0), paid = values.reduce((n, r) => n + ($3("[data-usd]").checked ? r.paidUsdMinor : r.paidMinor), 0);
-    $3("[data-totals]").textContent = `${values.length} seleccionadas \xB7 Total: ${money2(total)} \xB7 Adelanto: ${money2(paid)} \xB7 Saldo: ${money2(total - paid)}`;
-    $3("[data-submit]").disabled = busy || values.length < 2 || values.length > 20;
+    const values = [...selected.values()], total = values.reduce((n, r) => n + ($3("[data-usd]").checked ? r.totalCents : r.totalMinor), 0), defaultPaid = values.reduce((n, r) => n + ($3("[data-usd]").checked ? r.paidUsdMinor : r.paidMinor), 0);
+    const raw = $3("[data-paid]").value.trim().replace(",", "."), paid = raw ? Math.round(Number(raw) * 100) : defaultPaid, valid = (!raw || /^\d{1,12}(?:\.\d{1,2})?$/.test(raw)) && Number.isSafeInteger(paid) && paid >= 0 && paid <= total;
+    $3("[data-paid]").setCustomValidity(valid ? "" : "El abono debe estar entre cero y el total.");
+    $3("[data-paid-hint]").textContent = "Monto total pagado en " + ($3("[data-usd]").checked ? "USD" : "CRC") + ". En blanco: 20% habitual. Sin separadores de miles.";
+    $3("[data-totals]").textContent = !valid ? "Revisa el monto abonado." : `${values.length} seleccionadas \xB7 Total: ${money2(total)} \xB7 Abonado: ${money2(paid)} \xB7 Saldo: ${money2(total - paid)}`;
+    $3("[data-submit]").disabled = busy || !valid || values.length < 2 || values.length > 20;
     $3("[data-more]").hidden = !cursor2;
   }
   async function search(more = false) {
@@ -364,8 +430,13 @@ function initMultipleSale({ call, context = () => ({}), check = () => true, owne
   });
   $3("[data-more]").onclick = () => search(true);
   $3("[data-filter]").oninput = render;
+  $3("[data-paid]").oninput = () => {
+    requestId = null;
+    render();
+  };
   $3("[data-usd]").onchange = () => {
     requestId = null;
+    $3("[data-paid]").value = "";
     render();
   };
   $3("[data-phone]").oninput = () => {
@@ -392,7 +463,7 @@ function initMultipleSale({ call, context = () => ({}), check = () => true, owne
     $3("[data-status]").textContent = "Guardando venta\u2026";
     try {
       requestId ??= crypto.randomUUID();
-      const payload = { ...context(), paymentCurrency: $3("[data-usd]").checked ? "USD" : "CRC", requestId, items: [...selected.values()].map((r) => ({ id: r.id, quoteVersion: r.quoteVersion })), ...sale ? { saleId: sale.id, version: sale.version } : { customer: { phone, name: $3("[data-name]").value.trim(), address: $3("[data-address]").value.trim() }, receipt: await receiptFile($3("[data-receipt]").files[0]) } };
+      const payload = { ...context(), paidAmount: $3("[data-paid]").value.trim(), paymentCurrency: $3("[data-usd]").checked ? "USD" : "CRC", requestId, items: [...selected.values()].map((r) => ({ id: r.id, quoteVersion: r.quoteVersion })), ...sale ? { saleId: sale.id, version: sale.version } : { customer: { phone, name: $3("[data-name]").value.trim(), address: $3("[data-address]").value.trim() }, receipt: await receiptFile($3("[data-receipt]").files[0]) } };
       const { data } = await call("saveMultipleSale", payload);
       documentData = { ...data.paymentDocument, trackingCode: data.trackingCode };
       $3("[data-code]").value = data.trackingCode;
@@ -449,6 +520,7 @@ function initMultipleSale({ call, context = () => ({}), check = () => true, owne
     $3("[data-phone]").readOnly = !!sale;
     $3("[data-save]").reset();
     $3("[data-usd]").checked = sale?.paymentDocument?.currency === "USD";
+    $3("[data-paid]").value = sale?.paymentDocument?.customPayment ? (sale.paymentDocument.paidMinor / 100).toFixed(2) : "";
     $3("[data-save]").hidden = false;
     $3("[data-search]").hidden = false;
     $3("[data-success]").hidden = true;
@@ -736,7 +808,7 @@ function showDetail(item) {
   const fields = $("detail-fields");
   fields.replaceChildren();
   const customer = item.customer;
-  const data = [["Estado", item.kind === "sales" ? { pending: "Por aprobar", approved: "Aprobada", registered: "Aprobada", cancelled: "Cancelada", deleted: "Eliminada" }[item.status] || "Aprobada" : "C\xE1lculo"], ["Fecha", date(item.createdAt)], ["Vendedor", item.seller || "Sin vendedor"], ["Producto", item.product], ["Origen", item.saleType === "multiple" ? "Por repuesto" : item.shippingOrigin || "USA"], ["Peso", `${item.weightGrams / 1e3} kg`], ["Costo", money(item.costCents, "USD")], ["Env\xEDo", money(item.shippingCents, "USD")], ["Subtotal", money(item.subtotalCents, "USD")], ["Porcentaje", item.saleType === "multiple" ? "Seg\xFAn cada repuesto" : `${item.markupBps / 100}%`], ["Total antes del descuento", money(item.totalBeforeDiscountCents ?? item.totalCents, "USD")], ["Descuento", `${item.discountPercent ?? 0}% \xB7 ${money(item.discountCents ?? 0, "USD")}`], ["Ganancia neta", money(item.profitCents, "USD")], ["Total USD", money(item.totalCents, "USD")], ["Total CRC", item.totalCrcMinor == null ? "Sin conversi\xF3n" : money(item.totalCrcMinor)], ["Tipo de cambio", item.exchangeRateCents ? `${money(item.exchangeRateCents)} por USD` : "Sin tasa"], ["Moneda del comprobante", item.paymentDocument?.currency || "CRC"], ["Referencia", item.id], ["Venta asociada", item.saleId || item.calculationId || "Sin venta"]];
+  const data = [["Estado", item.kind === "sales" ? { pending: "Por aprobar", approved: "Aprobada", registered: "Aprobada", cancelled: "Cancelada", deleted: "Eliminada" }[item.status] || "Aprobada" : "C\xE1lculo"], ["Fecha", date(item.createdAt)], ["Vendedor", item.seller || "Sin vendedor"], ["Producto", item.product], ["Origen", item.saleType === "multiple" ? "Por repuesto" : item.shippingOrigin || "USA"], ["Peso", `${item.weightGrams / 1e3} kg`], ["Costo", money(item.costCents, "USD")], ["Env\xEDo", money(item.shippingCents, "USD")], ["Subtotal", money(item.subtotalCents, "USD")], ["Porcentaje", item.saleType === "multiple" ? "Seg\xFAn cada repuesto" : `${item.markupBps / 100}%`], ["Total antes del descuento", money(item.totalBeforeDiscountCents ?? item.totalCents, "USD")], ["Descuento", `${item.discountPercent ?? 0}% \xB7 ${money(item.discountCents ?? 0, "USD")}`], ["Ganancia neta", money(item.profitCents, "USD")], ["Total USD", money(item.totalCents, "USD")], ["Total CRC", item.totalCrcMinor == null ? "Sin conversi\xF3n" : money(item.totalCrcMinor)], ["Tipo de cambio", item.exchangeRateCents ? `${money(item.exchangeRateCents)} por USD` : "Sin tasa"], ["Moneda del comprobante", item.paymentDocument?.currency || "CRC"], ["Monto abonado", item.paymentDocument ? money(item.paymentDocument.paidMinor, item.paymentDocument.currency) : "20% habitual"], ["Saldo pendiente", item.paymentDocument ? money(item.paymentDocument.balanceMinor, item.paymentDocument.currency) : "Disponible al recuperar comprobante"], ["Referencia", item.id], ["Venta asociada", item.saleId || item.calculationId || "Sin venta"]];
   if (item.customerPhone && !customer) data.push(["Tel\xE9fono del cliente", "+" + item.customerPhone]);
   if (customer) data.push(["Cliente", customer.name || "Sin nombre"], ["Tel\xE9fono", customer.phone], ["Direcci\xF3n", customer.address]);
   for (const [label, value] of data) {
@@ -831,7 +903,10 @@ function showDetail(item) {
       actions.append(button);
     };
     if (item.receipt) add("Ver comprobante", "owner:receipt");
-    if (item.status !== "deleted") add("Editar venta", "owner:edit");
+    if (item.status !== "deleted") {
+      add("Editar venta", "owner:edit");
+      add("Editar abono", "owner:payment");
+    }
     if (item.status === "pending") add("Aprobar venta", "owner:action", "approve");
     if (["registered", "approved", "pending"].includes(item.status)) add("Marcar cancelada", "owner:action", "cancel");
     if (item.status !== "deleted") add("Eliminar venta", "owner:action", "delete");
@@ -869,6 +944,7 @@ function errorMessage(error) {
   return error.code === "functions/permission-denied" ? "Clave incorrecta o acceso caducado. Introduce la clave del due\xF1o." : error.code === "functions/resource-exhausted" ? "Demasiados intentos. Espera 15 minutos antes de volver a intentarlo." : "No se pudo completar la consulta. Revisa la conexi\xF3n e intenta de nuevo.";
 }
 function clearPrivate() {
+  openPaymentEditor.close();
   openMultipleEdit.close();
   clearTestimonials();
   sellerSalesGeneration++;
@@ -1243,3 +1319,8 @@ document.addEventListener("owner:delete-calculation", (e) => {
 });
 var clearTestimonials = initTestimonials({ call: (name, payload) => api(name)(payload) });
 var openMultipleEdit = initMultipleSale({ owner: true, call: (name, data) => api(name)(data), onSaved: () => reloadAfterChange() });
+var openPaymentEditor = initPaymentEditor({ call: (name, data) => api(name)(data), onSaved: async () => {
+  await reloadAfterChange();
+  notice("Abono actualizado. El comprobante ya muestra el nuevo saldo.");
+} });
+document.addEventListener("owner:payment", (e) => openPaymentEditor(e.detail.item));
