@@ -1,3 +1,137 @@
+// outputs/pitstop-owner/dist/advertising-ui.js
+function initAdvertising(call, reload) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "multi-dialog";
+  dialog.innerHTML = '<form><div class="multi-heading"><h2>Gasto en publicidad</h2><button type="button" data-close>Cerrar \xD7</button></div><label>Fecha<input data-day type="date" required></label><label>Descripci\xF3n<input data-description maxlength="180" required placeholder="Ej. Campa\xF1a de Instagram"></label><label>Moneda<select data-currency><option value="CRC">Colones</option><option value="USD">D\xF3lares</option></select></label><label>Monto<input data-amount inputmode="decimal" required placeholder="Sin separadores de miles"></label><label>Tipo de cambio (colones por US$ 1)<input data-rate inputmode="decimal" required></label><p>Esta tasa se guarda para comparar el gasto en ambas monedas.</p><button class="button" type="submit">Guardar gasto</button><button type="button" data-delete hidden>Eliminar gasto</button><p data-state role="status"></p></form>';
+  document.body.append(dialog);
+  const $3 = (s) => dialog.querySelector(s);
+  let item, busy = false, confirmDelete = false;
+  const close = () => {
+    if (!busy) dialog.close();
+  };
+  $3("[data-close]").onclick = close;
+  dialog.addEventListener("cancel", (e) => {
+    if (busy) e.preventDefault();
+  });
+  async function save(action) {
+    if (busy) return;
+    busy = true;
+    try {
+      await call("ownerAdvertising", { id: item.id, version: item.version || 0, action, day: $3("[data-day]").value, description: $3("[data-description]").value, amount: $3("[data-amount]").value.trim(), currency: $3("[data-currency]").value, rate: $3("[data-rate]").value.trim() });
+      dialog.close();
+      await reload();
+    } catch (e) {
+      $3("[data-state]").textContent = e.message || "No se pudo guardar. Actualiza el panel.";
+    } finally {
+      busy = false;
+    }
+  }
+  $3("form").onsubmit = (e) => {
+    e.preventDefault();
+    save("save");
+  };
+  $3("[data-delete]").onclick = () => {
+    if (!confirmDelete) {
+      confirmDelete = true;
+      $3("[data-delete]").textContent = "Confirmar eliminaci\xF3n";
+      $3("[data-state]").textContent = "El gasto dejar\xE1 de sumar; se conserva un registro de auditor\xEDa.";
+    } else save("delete");
+  };
+  function open(row) {
+    item = row || { id: crypto.randomUUID(), version: 0 };
+    confirmDelete = false;
+    $3("form").reset();
+    $3("[data-state]").textContent = "";
+    $3("[data-delete]").hidden = !row;
+    $3("[data-delete]").textContent = "Eliminar gasto";
+    $3("[data-day]").value = row?.day || new Intl.DateTimeFormat("en-CA", { timeZone: "America/Costa_Rica", year: "numeric", month: "2-digit", day: "2-digit" }).format(/* @__PURE__ */ new Date());
+    $3("[data-description]").value = row?.description || "";
+    $3("[data-currency]").value = row?.currency || "CRC";
+    $3("[data-amount]").value = row ? (row.amountMinor / 100).toFixed(2) : "";
+    $3("[data-rate]").value = row ? (row.exchangeRateCents / 100).toFixed(2) : "";
+    dialog.showModal();
+  }
+  document.getElementById("ad-add").onclick = () => open();
+  document.addEventListener("owner:ad-edit", (e) => open(e.detail));
+  open.close = () => {
+    dialog.close();
+    $3("form").reset();
+  };
+  return open;
+}
+
+// outputs/pitstop-owner/dist/notifications.js
+function initNotifications(call) {
+  const $3 = (id) => document.getElementById(id);
+  let key, registration, busy = false;
+  const supported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  async function status() {
+    const sub = await registration.pushManager.getSubscription();
+    $3("push-enable").hidden = !!sub;
+    $3("push-disable").hidden = !sub;
+    $3("push-test").hidden = !sub;
+    $3("push-state").textContent = sub ? "Avisos activados en este dispositivo. Usa Enviar prueba para comprobar la recepci\xF3n." : "Los avisos se activan \xFAnicamente en los dispositivos que autorices.";
+    return sub;
+  }
+  async function prepare() {
+    if (!supported()) {
+      $3("push-state").textContent = "Para recibir avisos en iPhone, instala el acceso en la pantalla de inicio y \xE1brelo desde all\xED.";
+      $3("push-enable").disabled = true;
+      return;
+    }
+    try {
+      registration = await navigator.serviceWorker.register("./sw.js");
+      const { data } = await call("ownerPush", { action: "config" });
+      key = data.publicKey;
+      await status();
+      $3("push-enable").disabled = false;
+    } catch {
+      $3("push-state").textContent = "No se pudieron preparar los avisos. Actualiza el panel para intentar nuevamente.";
+    }
+  }
+  const run = (fn) => async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      await fn();
+    } catch (e) {
+      $3("push-state").textContent = e.message || "No se pudo completar. Revisa los permisos de notificaciones.";
+    } finally {
+      busy = false;
+    }
+  };
+  $3("push-enable").onclick = run(async () => {
+    if (!key) throw Error("Actualiza el panel y vuelve a intentar.");
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") throw Error("Permiso no concedido. Puedes cambiarlo en los ajustes de notificaciones del dispositivo.");
+    const ready = await navigator.serviceWorker.ready;
+    const bytes = Uint8Array.from(atob(key.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const sub = await ready.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+    try {
+      await call("ownerPush", { action: "enable", subscription: sub.toJSON() });
+    } catch (e) {
+      await sub.unsubscribe();
+      throw e;
+    }
+    await status();
+  });
+  $3("push-disable").onclick = run(async () => {
+    const sub = await registration.pushManager.getSubscription();
+    if (sub) {
+      await call("ownerPush", { action: "disable", subscription: sub.toJSON() });
+      await sub.unsubscribe();
+    }
+    await status();
+  });
+  $3("push-test").onclick = run(async () => {
+    const sub = await registration.pushManager.getSubscription();
+    if (!sub) throw Error("Activa los avisos primero.");
+    await call("ownerPush", { action: "test", subscription: sub.toJSON() });
+    $3("push-state").textContent = "Prueba enviada al servicio de notificaciones. Comprueba la notificaci\xF3n en tu dispositivo.";
+  });
+  return prepare;
+}
+
 // outputs/pitstop-owner/dist/payment-editor.js
 function initPaymentEditor({ call, onSaved }) {
   const dialog = document.createElement("dialog");
@@ -729,20 +863,48 @@ function chart(target, labels, series, currency, title) {
   container.append(svg);
 }
 function renderOverview(data, currency) {
-  const model = summarize(data, currency);
   renderMetrics(data.metrics, currency);
-  $("today-total").textContent = money(amount(model.today, currency), currency);
-  $("today-count").textContent = `${model.today.salesCount} ventas hoy`;
-  $("week-total").textContent = money(model.weekTotal, currency);
-  $("week-change").textContent = model.change === null ? "Sin base de comparaci\xF3n anterior" : `${model.change >= 0 ? "+" : ""}${model.change.toFixed(1)}% frente a los mismos d\xEDas de la semana anterior`;
-  $("month-total").textContent = money(model.monthTotal, currency);
-  $("month-count").textContent = `${model.monthCount} ventas aprobadas`;
-  $("average").textContent = money(model.monthCount ? Math.round(model.monthTotal / model.monthCount) : 0, currency);
-  $("week-note").textContent = `Semana del ${data.monday} frente a la del ${data.previous}. La semana actual est\xE1 en curso.`;
-  chart("week-chart", ["Lun", "Mar", "Mi\xE9", "Jue", "Vie", "S\xE1b", "Dom"], [{ name: "Anterior", values: model.previous.map((r) => amount(r, currency)), color: "#c0c5ce" }, { name: "Actual", values: model.current.map((r) => r.day > data.today ? null : amount(r, currency)), color: "#dd1222" }], currency, "Ventas de esta semana y de la anterior, de lunes a domingo.");
-  chart("month-chart", model.month.map((r) => r.day.slice(8)), [{ name: "Ventas", values: model.month.map((r) => amount(r, currency)), color: "#dd1222" }], currency, "Ventas por d\xEDa del mes seleccionado.");
-  $("month-extremes").textContent = model.monthCount ? `Mayor: ${model.highest.day} \xB7 ${money(amount(model.highest, currency), currency)}. Menor: ${model.lowest.day} \xB7 ${money(amount(model.lowest, currency), currency)}. Se incluyen d\xEDas transcurridos sin ventas; en empates se muestra el primero.` : "No hay ventas aprobadas en este mes.";
+  renderAdvertising(data, currency);
+  const model = summarize(data, currency), m = data.metrics.currencies[currency], before = data.previousMetrics.currencies[currency], period = data.period;
+  $("today-total").textContent = String(data.metrics.approved);
+  $("today-count").textContent = "Ventas aprobadas del per\xEDodo";
+  $("week-total").textContent = period.previousFrom ? money(before.revenue, currency) : "\u2014";
+  $("week-change").textContent = period.previousFrom ? period.previousFrom + " al " + period.previousTo : "Todo el historial: sin per\xEDodo anterior";
+  $("month-total").textContent = money(m.revenue, currency);
+  $("month-count").textContent = period.label + " \xB7 " + period.from + " al " + period.to;
+  $("average").textContent = money(data.metrics.approved ? Math.round(m.revenue / data.metrics.approved) : 0, currency);
+  $("week-note").textContent = period.previousFrom ? "Comparaci\xF3n con los " + data.monthDays.length + " d\xEDas inmediatamente anteriores al per\xEDodo seleccionado." : "Se muestra todo el historial disponible.";
+  chart("week-chart", ["Ventas"], [{ name: "Anterior", values: [period.previousFrom ? before.revenue : null], color: "#c0c5ce" }, { name: "Seleccionado", values: [m.revenue], color: "#dd1222" }], currency, "Ventas del per\xEDodo seleccionado frente al anterior.");
+  const grouped = /* @__PURE__ */ new Map(), monthly = data.days.length > 62;
+  for (const day of data.days) {
+    const key = monthly ? day.day.slice(0, 7) : day.day;
+    grouped.set(key, (grouped.get(key) || 0) + amount(day, currency));
+  }
+  chart("month-chart", [...grouped.keys()].map((k) => monthly ? k : k.slice(5)), [{ name: "Ventas", values: [...grouped.values()], color: "#dd1222" }], currency, "Evoluci\xF3n de ventas del per\xEDodo seleccionado.");
+  $("month-extremes").textContent = data.metrics.approved ? "D\xEDa m\xE1s alto: " + model.highest.day + " \xB7 " + money(amount(model.highest, currency), currency) + ". D\xEDa m\xE1s bajo: " + model.lowest.day + " \xB7 " + money(amount(model.lowest, currency), currency) + ". Incluye d\xEDas sin ventas." : "No hay ventas aprobadas en este per\xEDodo.";
   renderSellers(data, currency, $("seller-day").value || data.today);
+}
+function renderAdvertising(data, currency) {
+  const spend = data.metrics.advertising[currency], m = data.metrics.currencies[currency], n = data.metrics.approved;
+  $("ad-total").textContent = money(spend, currency);
+  $("ad-per-sale").textContent = n ? "Publicidad por venta aprobada: " + money(Math.round(spend / n), currency) : "Sin ventas aprobadas para calcular costo por venta.";
+  $("ad-balance").textContent = "Ganancia bruta menos publicidad: " + money(m.profit - spend, currency);
+  const c = data.metrics.conversion;
+  donut("ad-donut", [{ label: "Cotizaciones convertidas", value: c.approved, color: "#dd1222" }, { label: "Otras cotizaciones", value: c.total - c.approved, color: "#bec5d0" }], c.total ? (100 * c.approved / c.total).toFixed(1) + "%" : "0%", "conversi\xF3n global");
+  const body = $("ad-rows");
+  body.replaceChildren();
+  if (!data.advertising.length) {
+    empty(body, 4, "Sin gastos de publicidad registrados en este per\xEDodo.");
+    return;
+  }
+  for (const item of data.advertising) {
+    const tr = document.createElement("tr"), cell = td(""), button = document.createElement("button");
+    button.textContent = "Editar";
+    button.onclick = () => document.dispatchEvent(new CustomEvent("owner:ad-edit", { detail: item }));
+    cell.append(button);
+    tr.append(td(item.day), td(item.description), td(money(currency === "CRC" ? item.crcMinor : item.usdMinor, currency)), cell);
+    body.append(tr);
+  }
 }
 function td(text) {
   const cell = document.createElement("td");
@@ -780,7 +942,7 @@ function donut(id, parts, center, caption, format = String) {
   if (!total) {
     const p = document.createElement("p");
     p.className = "donut-empty";
-    p.textContent = "Sin datos para este mes.";
+    p.textContent = "Sin datos para este per\xEDodo.";
     box.append(p);
   }
 }
@@ -998,6 +1160,7 @@ function errorMessage(error) {
   return error.code === "functions/permission-denied" ? "Clave incorrecta o acceso caducado. Introduce la clave del due\xF1o." : error.code === "functions/resource-exhausted" ? "Demasiados intentos. Espera 15 minutos antes de volver a intentarlo." : "No se pudo completar la consulta. Revisa la conexi\xF3n e intenta de nuevo.";
 }
 function clearPrivate() {
+  openAdvertising.close();
   openPaymentEditor.close();
   openMultipleEdit.close();
   clearTestimonials();
@@ -1034,19 +1197,18 @@ function clearPrivate() {
 async function loadOverview() {
   const stamp = ++generation;
   try {
-    const { data } = await api("ownerOverview")({ month: $2("month").value || void 0 });
+    const { data } = await api("ownerOverview")({ range: $2("report-range").value });
     if (stamp !== generation || !auth.currentUser) return;
     overview = data;
-    $2("month").value = data.month;
-    $2("month").max = data.today.slice(0, 7);
-    if (!$2("seller-day").value || !data.days.some((r) => r.day === $2("seller-day").value)) $2("seller-day").value = data.month === data.today.slice(0, 7) ? data.today : data.monthDays[0];
+    if (!$2("seller-day").value || !data.days.some((r) => r.day === $2("seller-day").value)) $2("seller-day").value = data.today;
     $2("seller-day").max = data.today;
     renderOverview(data, $2("currency").value);
     $2("dashboard").hidden = false;
     $2("logout").hidden = false;
     $2("account").textContent = "Panel desbloqueado";
     $2("login-panel").hidden = true;
-    notice("Actualizado. Las cotizaciones y las ventas se muestran por separado.");
+    notice("Actualizado. " + data.period.label + " \xB7 " + data.period.from + " al " + data.period.to);
+    prepareNotifications();
   } catch (error) {
     if (stamp !== generation) return;
     if (error.code === "functions/permission-denied") {
@@ -1117,7 +1279,7 @@ $2("refresh").addEventListener("click", async () => {
   await loadOverview();
   if (overview) await loadHistory();
 });
-$2("month").addEventListener("change", () => loadOverview());
+$2("report-range").addEventListener("change", () => loadOverview());
 $2("currency").addEventListener("change", () => {
   if (overview) renderOverview(overview, $2("currency").value);
   renderHistory(rows, $2("currency").value);
@@ -1127,8 +1289,10 @@ $2("seller-day").addEventListener("change", async () => {
   const day = $2("seller-day").value;
   if (!day || !overview) return;
   if (!overview.days.some((r) => r.day === day)) {
-    $2("month").value = day.slice(0, 7);
+    $2("report-range").value = "all";
     await loadOverview();
+    $2("seller-day").value = day;
+    renderSellers(overview, $2("currency").value, day);
   } else renderSellers(overview, $2("currency").value, day);
 });
 for (const [id, value] of [["pending-tab", "pending"], ["sales-tab", "sales"], ["calculations-tab", "calculations"]]) $2(id).addEventListener("click", () => {
@@ -1378,3 +1542,5 @@ var openPaymentEditor = initPaymentEditor({ call: (name, data) => api(name)(data
   notice("Abono actualizado. El comprobante ya muestra el nuevo saldo.");
 } });
 document.addEventListener("owner:payment", (e) => openPaymentEditor(e.detail.item));
+var openAdvertising = initAdvertising((name, data) => api(name)(data), () => loadOverview());
+var prepareNotifications = initNotifications((name, data) => api(name)(data));
