@@ -730,6 +730,7 @@ function chart(target, labels, series, currency, title) {
 }
 function renderOverview(data, currency) {
   const model = summarize(data, currency);
+  renderMetrics(data.metrics, currency);
   $("today-total").textContent = money(amount(model.today, currency), currency);
   $("today-count").textContent = `${model.today.salesCount} ventas hoy`;
   $("week-total").textContent = money(model.weekTotal, currency);
@@ -747,6 +748,59 @@ function td(text) {
   const cell = document.createElement("td");
   cell.textContent = text;
   return cell;
+}
+function donut(id, parts, center, caption, format = String) {
+  const box = $(id);
+  box.replaceChildren();
+  const total = parts.reduce((n, p) => n + p.value, 0), r = 70, length = 2 * Math.PI * r;
+  const svg = svgNode("svg", { viewBox: "0 0 200 200", class: "donut-svg", role: "img", "aria-label": caption + ": " + parts.map((p) => p.label + " " + format(p.value)).join(", ") });
+  svg.append(svgNode("circle", { cx: 100, cy: 100, r, fill: "none", stroke: "#edf0f4", "stroke-width": 22 }));
+  let offset = 0;
+  if (total > 0) for (const part of parts) {
+    if (part.value <= 0) continue;
+    const segment = length * part.value / total;
+    const arc = svgNode("circle", { cx: 100, cy: 100, r, fill: "none", stroke: part.color, "stroke-width": 22, "stroke-dasharray": `${segment} ${length - segment}`, "stroke-dashoffset": -offset, transform: "rotate(-90 100 100)" });
+    arc.append(svgNode("title", {}, part.label + ": " + format(part.value)));
+    svg.append(arc);
+    offset += segment;
+  }
+  svg.append(svgNode("text", { x: 100, y: 99, "text-anchor": "middle", "font-size": 25, "font-weight": 800, fill: "#20242d" }, center), svgNode("text", { x: 100, y: 120, "text-anchor": "middle", "font-size": 11, fill: "#737983" }, caption));
+  box.append(svg);
+  const legend = document.createElement("ul");
+  legend.className = "donut-legend";
+  for (const part of parts) {
+    const li = document.createElement("li"), dot = document.createElement("i"), label = document.createElement("span"), value = document.createElement("strong");
+    dot.style.background = part.color;
+    label.textContent = part.label;
+    value.textContent = format(part.value);
+    li.append(dot, label, value);
+    legend.append(li);
+  }
+  box.append(legend);
+  if (!total) {
+    const p = document.createElement("p");
+    p.className = "donut-empty";
+    p.textContent = "Sin datos para este mes.";
+    box.append(p);
+  }
+}
+function renderMetrics(m, currency) {
+  if (!m) return;
+  const f = m.currencies[currency], percent = (n, total) => total ? (100 * n / total).toFixed(1) + "%" : "0%";
+  $("gross-profit").textContent = f.missing ? "Datos incompletos" : money(f.profit, currency);
+  $("gross-cost").textContent = f.missing ? "Datos incompletos" : money(f.cost, currency);
+  $("gross-margin").textContent = f.missing ? `${f.missing} ventas necesitan revisar costos o tipo de cambio.` : `Margen bruto: ${percent(f.profit, f.revenue)} sobre ventas aprobadas`;
+  donut("sales-donut", [{ label: "Aprobadas", value: m.approved, color: "#dd1222" }, { label: "Por aprobar", value: m.pending, color: "#e6a236" }, { label: "Canceladas", value: m.cancelled, color: "#a2a9b6" }], String(m.approved + m.pending + m.cancelled), "ventas");
+  if (f.missing || f.profit < 0) {
+    $("profit-donut").replaceChildren();
+    const p = document.createElement("p");
+    p.textContent = f.missing ? "No se puede completar la gr\xE1fica hasta revisar los datos faltantes." : "La ganancia es negativa: " + money(f.profit, currency) + ". Los costos superan las ventas.";
+    $("profit-donut").append(p);
+  } else donut("profit-donut", [{ label: "Ganancia bruta", value: f.profit, color: "#dd1222" }, { label: "Repuesto + env\xEDo", value: f.cost, color: "#303946" }], percent(f.profit, f.revenue), "margen bruto", (n) => money(n, currency));
+  const c = m.conversion;
+  donut("conversion-donut", [{ label: "Venta aprobada", value: c.approved, color: "#dd1222" }, { label: "Por aprobar", value: c.pending, color: "#e6a236" }, { label: "Sin venta aprobada", value: c.other, color: "#bfc6d0" }], percent(c.approved, c.total), "conversi\xF3n");
+  const colors = ["#dd1222", "#303946", "#e6a236", "#74869d", "#bb6574"];
+  donut("sellers-donut", m.sellers.map((s, i) => ({ label: s.name, value: s.count, color: colors[i % colors.length] })), String(m.approved), "ventas aprobadas");
 }
 function empty(body, cols, text) {
   const row = document.createElement("tr"), cell = td(text);
@@ -808,7 +862,7 @@ function showDetail(item) {
   const fields = $("detail-fields");
   fields.replaceChildren();
   const customer = item.customer;
-  const data = [["Estado", item.kind === "sales" ? { pending: "Por aprobar", approved: "Aprobada", registered: "Aprobada", cancelled: "Cancelada", deleted: "Eliminada" }[item.status] || "Aprobada" : "C\xE1lculo"], ["Fecha", date(item.createdAt)], ["Vendedor", item.seller || "Sin vendedor"], ["Producto", item.product], ["Origen", item.saleType === "multiple" ? "Por repuesto" : item.shippingOrigin || "USA"], ["Peso", `${item.weightGrams / 1e3} kg`], ["Costo", money(item.costCents, "USD")], ["Env\xEDo", money(item.shippingCents, "USD")], ["Subtotal", money(item.subtotalCents, "USD")], ["Porcentaje", item.saleType === "multiple" ? "Seg\xFAn cada repuesto" : `${item.markupBps / 100}%`], ["Total antes del descuento", money(item.totalBeforeDiscountCents ?? item.totalCents, "USD")], ["Descuento", `${item.discountPercent ?? 0}% \xB7 ${money(item.discountCents ?? 0, "USD")}`], ["Ganancia neta", money(item.profitCents, "USD")], ["Total USD", money(item.totalCents, "USD")], ["Total CRC", item.totalCrcMinor == null ? "Sin conversi\xF3n" : money(item.totalCrcMinor)], ["Tipo de cambio", item.exchangeRateCents ? `${money(item.exchangeRateCents)} por USD` : "Sin tasa"], ["Moneda del comprobante", item.paymentDocument?.currency || "CRC"], ["Monto abonado", item.paymentDocument ? money(item.paymentDocument.paidMinor, item.paymentDocument.currency) : "20% habitual"], ["Saldo pendiente", item.paymentDocument ? money(item.paymentDocument.balanceMinor, item.paymentDocument.currency) : "Disponible al recuperar comprobante"], ["Referencia", item.id], ["Venta asociada", item.saleId || item.calculationId || "Sin venta"]];
+  const data = [["Estado", item.kind === "sales" ? { pending: "Por aprobar", approved: "Aprobada", registered: "Aprobada", cancelled: "Cancelada", deleted: "Eliminada" }[item.status] || "Aprobada" : "C\xE1lculo"], ["Fecha", date(item.createdAt)], ["Vendedor", item.seller || "Sin vendedor"], ["Producto", item.product], ["Origen", item.saleType === "multiple" ? "Por repuesto" : item.shippingOrigin || "USA"], ["Peso", `${item.weightGrams / 1e3} kg`], ["Costo", money(item.costCents, "USD")], ["Env\xEDo", money(item.shippingCents, "USD")], ["Subtotal", money(item.subtotalCents, "USD")], ["Porcentaje", item.saleType === "multiple" ? "Seg\xFAn cada repuesto" : `${item.markupBps / 100}%`], ["Total antes del descuento", money(item.totalBeforeDiscountCents ?? item.totalCents, "USD")], ["Descuento", `${item.discountPercent ?? 0}% \xB7 ${money(item.discountCents ?? 0, "USD")}`], ["Ganancia bruta USD", money(item.profitCents, "USD")], ["Total USD", money(item.totalCents, "USD")], ["Total CRC", item.totalCrcMinor == null ? "Sin conversi\xF3n" : money(item.totalCrcMinor)], ["Tipo de cambio", item.exchangeRateCents ? `${money(item.exchangeRateCents)} por USD` : "Sin tasa"], ["Moneda del comprobante", item.paymentDocument?.currency || "CRC"], ["Monto abonado", item.paymentDocument ? money(item.paymentDocument.paidMinor, item.paymentDocument.currency) : "20% habitual"], ["Saldo pendiente", item.paymentDocument ? money(item.paymentDocument.balanceMinor, item.paymentDocument.currency) : "Disponible al recuperar comprobante"], ["Referencia", item.id], ["Venta asociada", item.saleId || item.calculationId || "Sin venta"]];
   if (item.customerPhone && !customer) data.push(["Tel\xE9fono del cliente", "+" + item.customerPhone]);
   if (customer) data.push(["Cliente", customer.name || "Sin nombre"], ["Tel\xE9fono", customer.phone], ["Direcci\xF3n", customer.address]);
   for (const [label, value] of data) {
