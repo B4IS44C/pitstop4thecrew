@@ -1,3 +1,29 @@
+// outputs/pitstop-owner/dist/change-key.js
+function requestChangeKey() {
+  return new Promise((resolve, reject) => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "change-key-dialog";
+    dialog.innerHTML = '<form><h2>Autorizar cambio</h2><p>Introduce la clave del administrador para realizar esta acci\xF3n.</p><label>Clave del administrador<input type="password" required maxlength="128" autocomplete="off" autofocus></label><div class="management-actions"><button type="button">Cancelar</button><button type="submit" class="primary">Confirmar cambio</button></div></form>';
+    const finish = (value) => {
+      dialog.querySelector("input").value = "";
+      dialog.close();
+      dialog.remove();
+      value ? resolve(value) : reject(new Error("Cambio cancelado."));
+    };
+    dialog.querySelector("form").onsubmit = (e) => {
+      e.preventDefault();
+      finish(dialog.querySelector("input").value);
+    };
+    dialog.querySelector("button[type=button]").onclick = () => finish(null);
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      finish(null);
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
 // outputs/pitstop-owner/dist/advertising-ui.js
 function initAdvertising(call, reload) {
   const dialog = document.createElement("dialog");
@@ -952,7 +978,7 @@ function renderMetrics(m, currency) {
   $("gross-profit").textContent = f.missing ? "Datos incompletos" : money(f.profit, currency);
   $("gross-cost").textContent = f.missing ? "Datos incompletos" : money(f.cost, currency);
   $("gross-margin").textContent = f.missing ? `${f.missing} ventas necesitan revisar costos o tipo de cambio.` : `Margen bruto: ${percent(f.profit, f.revenue)} sobre ventas aprobadas`;
-  donut("sales-donut", [{ label: "Aprobadas", value: m.approved, color: "#dd1222" }, { label: "Por aprobar", value: m.pending, color: "#e6a236" }, { label: "Canceladas", value: m.cancelled, color: "#a2a9b6" }], String(m.approved + m.pending + m.cancelled), "ventas");
+  donut("sales-donut", [{ label: "Aprobadas", value: m.approved, color: "#dd1222" }, { label: "Canceladas", value: m.cancelled, color: "#a2a9b6" }], String(m.approved + m.pending + m.cancelled), "ventas");
   if (f.missing || f.profit < 0) {
     $("profit-donut").replaceChildren();
     const p = document.createElement("p");
@@ -960,7 +986,7 @@ function renderMetrics(m, currency) {
     $("profit-donut").append(p);
   } else donut("profit-donut", [{ label: "Ganancia bruta", value: f.profit, color: "#dd1222" }, { label: "Repuesto + env\xEDo", value: f.cost, color: "#303946" }], percent(f.profit, f.revenue), "margen bruto", (n) => money(n, currency));
   const c = m.conversion;
-  donut("conversion-donut", [{ label: "Venta aprobada", value: c.approved, color: "#dd1222" }, { label: "Por aprobar", value: c.pending, color: "#e6a236" }, { label: "Sin venta aprobada", value: c.other, color: "#bfc6d0" }], percent(c.approved, c.total), "conversi\xF3n");
+  donut("conversion-donut", [{ label: "Venta aprobada", value: c.approved, color: "#dd1222" }, { label: "Sin venta aprobada", value: c.other, color: "#bfc6d0" }], percent(c.approved, c.total), "conversi\xF3n");
   const colors = ["#dd1222", "#303946", "#e6a236", "#74869d", "#bb6574"];
   donut("sellers-donut", m.sellers.map((s, i) => ({ label: s.name, value: s.count, color: colors[i % colors.length] })), String(m.approved), "ventas aprobadas");
 }
@@ -1123,10 +1149,9 @@ function showDetail(item) {
       add("Editar venta", "owner:edit");
       add("Editar abono", "owner:payment");
     }
-    if (item.status === "pending") add("Aprobar venta", "owner:action", "approve");
     if (["registered", "approved", "pending"].includes(item.status)) add("Marcar cancelada", "owner:action", "cancel");
-    if (item.status !== "deleted") add("Eliminar venta", "owner:action", "delete");
-    if (["cancelled", "deleted"].includes(item.status)) add(item.status === "deleted" ? "Restaurar venta" : "Reactivar venta", "owner:action", "restore");
+    add("Eliminar definitivamente", "owner:action", "delete");
+    if (item.status === "cancelled") add("Reactivar venta", "owner:action", "restore");
   }
   if (item.kind === "calculations") {
     const button = document.createElement("button");
@@ -1149,7 +1174,7 @@ var api;
 var overview;
 var rows = [];
 var cursor = null;
-var kind = "pending";
+var kind = "sales";
 var generation = 0;
 var historyGeneration = 0;
 function notice(text, error = false) {
@@ -1157,7 +1182,7 @@ function notice(text, error = false) {
   $2("notice").classList.toggle("error", error);
 }
 function errorMessage(error) {
-  return error.code === "functions/permission-denied" ? "Clave incorrecta o acceso caducado. Introduce la clave del due\xF1o." : error.code === "functions/resource-exhausted" ? "Demasiados intentos. Espera 15 minutos antes de volver a intentarlo." : "No se pudo completar la consulta. Revisa la conexi\xF3n e intenta de nuevo.";
+  return error.code === "functions/permission-denied" ? "Clave incorrecta. No se realiz\xF3 el cambio." : error.code === "functions/resource-exhausted" ? "Demasiados intentos. Espera 15 minutos antes de volver a intentarlo." : "No se pudo completar la consulta. Revisa la conexi\xF3n e intenta de nuevo.";
 }
 function clearPrivate() {
   openAdvertising.close();
@@ -1204,8 +1229,8 @@ async function loadOverview() {
     $2("seller-day").max = data.today;
     renderOverview(data, $2("currency").value);
     $2("dashboard").hidden = false;
-    $2("logout").hidden = false;
-    $2("account").textContent = "Panel desbloqueado";
+    $2("logout").hidden = true;
+    $2("account").textContent = "Vista de administraci\xF3n";
     $2("login-panel").hidden = true;
     notice("Actualizado. " + data.period.label + " \xB7 " + data.period.from + " al " + data.period.to);
     prepareNotifications();
@@ -1295,12 +1320,12 @@ $2("seller-day").addEventListener("change", async () => {
     renderSellers(overview, $2("currency").value, day);
   } else renderSellers(overview, $2("currency").value, day);
 });
-for (const [id, value] of [["pending-tab", "pending"], ["sales-tab", "sales"], ["calculations-tab", "calculations"]]) $2(id).addEventListener("click", () => {
+for (const [id, value] of [["sales-tab", "sales"], ["calculations-tab", "calculations"]]) $2(id).addEventListener("click", () => {
   kind = value;
   rows = [];
   cursor = null;
   renderHistory(rows, $2("currency").value);
-  for (const button of ["pending-tab", "sales-tab", "calculations-tab"]) {
+  for (const button of ["sales-tab", "calculations-tab"]) {
     $2(button).classList.toggle("selected", button === id);
     $2(button).setAttribute("aria-pressed", String(button === id));
   }
@@ -1325,13 +1350,20 @@ async function start() {
     authApi = authentication;
     auth = authentication.getAuth(firebase);
     await authentication.setPersistence(auth, authentication.browserSessionPersistence);
-    api = (name) => functions.httpsCallable(functions.getFunctions(firebase, region), name);
+    api = (name) => async (data = {}) => {
+      const write = ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
+      const payload = write ? { ...data, changeKey: await requestChangeKey() } : data;
+      try {
+        return await functions.httpsCallable(functions.getFunctions(firebase, region), name)(payload);
+      } finally {
+        if (write) delete payload.changeKey;
+      }
+    };
     await authentication.signInAnonymously(auth);
     $2("login").disabled = false;
-    notice("Introduce la clave de acceso.");
+    notice("Cargando panel\u2026");
     await loadOverview();
     if (overview) await loadHistory();
-    else notice("Introduce la clave de acceso.");
   } catch (error) {
     notice(errorMessage(error), true);
   }
@@ -1432,7 +1464,7 @@ document.addEventListener("owner:action", (e) => {
   const { item, action } = e.detail;
   actionPending = { saleId: item.id, action, version: item.version ?? 0, actionId: crypto.randomUUID() };
   $2("action-title").textContent = { approve: "Aprobar venta", cancel: "Cancelar venta", delete: "Eliminar venta", restore: "Restaurar venta" }[action];
-  $2("action-message").textContent = `${item.product}. ` + { approve: "Pasar\xE1 al historial como aprobada y sumar\xE1 en los totales de su fecha de venta.", cancel: "Se marcar\xE1 como cancelada y dejar\xE1 de sumar en los totales. Podr\xE1s reactivarla.", delete: "Se marcar\xE1 como eliminada y dejar\xE1 de sumar en los totales. Se conservar\xE1 para poder restaurarla.", restore: item.status === "deleted" && item.statusBeforeDeletion === "cancelled" ? "Volver\xE1 al estado cancelada." : "Recuperar\xE1 su estado anterior. Si estaba por aprobar, seguir\xE1 pendiente de aprobaci\xF3n." }[action];
+  $2("action-message").textContent = `${item.product}. ` + { approve: "Pasar\xE1 al historial como aprobada y sumar\xE1 en los totales de su fecha de venta.", cancel: "Se marcar\xE1 como cancelada y dejar\xE1 de sumar en los totales. Podr\xE1s reactivarla.", delete: "Se eliminar\xE1 definitivamente de la base de datos, incluidos comprobante, seguimiento e historial de cambios. No se puede deshacer. Las cotizaciones originales volver\xE1n a estar disponibles.", restore: item.status === "deleted" && item.statusBeforeDeletion === "cancelled" ? "Volver\xE1 al estado cancelada." : "Volver\xE1 al historial como aprobada." }[action];
   $2("action-error").textContent = "";
   $2("sale-action-dialog").showModal();
 });
