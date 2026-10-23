@@ -1,3 +1,66 @@
+// outputs/pitstop-owner/dist/delivery-editor.js
+function initDeliveryEditor({ call, onSaved }) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "multi-dialog";
+  dialog.innerHTML = '<form><div class="multi-heading"><h2>Editar entrega</h2><button type="button" data-close aria-label="Cerrar entrega">\xD7</button></div><p data-info></p><label>C\xF3mo ajustar<select data-mode><option value="date">Seleccionar fecha estimada</option><option value="extend">Agregar d\xEDas al plazo</option></select></label><label data-date-row>Fecha estimada de entrega<input type="date" data-date required></label><label data-days-row hidden>D\xEDas adicionales (calendario)<input type="number" data-days min="1" max="365" value="3" disabled></label><p>Los d\xEDas se agregan desde la fecha estimada actual, o desde hoy si el pedido ya est\xE1 atrasado. El c\xF3digo de seguimiento se conserva.</p><label class="payment-currency-choice"><input type="checkbox" data-arrived> Confirmar que el pedido ya lleg\xF3</label><p>Sin esta confirmaci\xF3n, el cliente ver\xE1 el pedido en tr\xE1nsito aunque venza el plazo. Desm\xE1rcala si se confirm\xF3 por error.</p><button type="submit" class="button">Guardar entrega</button><p data-error role="status"></p></form>';
+  document.body.append(dialog);
+  const $3 = (s) => dialog.querySelector(s);
+  let sale, busy = false, actionId, payload;
+  function mode() {
+    const extend = $3("[data-mode]").value === "extend";
+    $3("[data-date-row]").hidden = extend;
+    $3("[data-date]").disabled = extend;
+    $3("[data-days-row]").hidden = !extend;
+    $3("[data-days]").disabled = !extend;
+    $3("[data-days]").required = extend;
+  }
+  $3("[data-mode]").onchange = mode;
+  $3("[data-close]").onclick = () => {
+    if (!busy) dialog.close();
+  };
+  dialog.addEventListener("cancel", (e) => {
+    if (busy) e.preventDefault();
+  });
+  $3("form").onsubmit = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    busy = true;
+    $3("button[type=submit]").disabled = true;
+    try {
+      const delivery = { mode: $3("[data-mode]").value, date: $3("[data-date]").value, days: Number($3("[data-days]").value), arrived: $3("[data-arrived]").checked };
+      const serialized = JSON.stringify(delivery);
+      if (payload !== serialized) {
+        payload = serialized;
+        actionId = crypto.randomUUID();
+      }
+      await call("ownerChangeSale", { saleId: sale.id, version: sale.version ?? 0, action: "delivery", actionId, delivery });
+      dialog.close();
+      await onSaved();
+    } catch (e2) {
+      $3("[data-error]").textContent = e2.message || "No se pudo guardar.";
+    } finally {
+      busy = false;
+      $3("button[type=submit]").disabled = false;
+    }
+  };
+  const open = (item) => {
+    sale = item;
+    actionId = null;
+    payload = null;
+    $3("form").reset();
+    $3("[data-error]").textContent = "";
+    $3("[data-info]").textContent = item.product + " \xB7 Estimaci\xF3n actual: " + (item.deliveryOverride?.date || item.tracking?.label || "8\u201312 d\xEDas");
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Costa_Rica", year: "numeric", month: "2-digit", day: "2-digit" }).format(/* @__PURE__ */ new Date());
+    $3("[data-date]").min = today;
+    $3("[data-date]").value = item.deliveryOverride?.date >= today ? item.deliveryOverride.date : today;
+    $3("[data-arrived]").checked = item.deliveryOverride?.arrived === true;
+    mode();
+    dialog.showModal();
+  };
+  open.close = () => dialog.close();
+  return open;
+}
+
 // outputs/pitstop-owner/dist/change-key.js
 function requestChangeKey() {
   return new Promise((resolve, reject) => {
@@ -1148,6 +1211,7 @@ function showDetail(item) {
     if (item.status !== "deleted") {
       add("Editar venta", "owner:edit");
       add("Editar abono", "owner:payment");
+      add("Editar entrega", "owner:delivery");
     }
     if (["registered", "approved", "pending"].includes(item.status)) add("Marcar cancelada", "owner:action", "cancel");
     add("Eliminar definitivamente", "owner:action", "delete");
@@ -1185,6 +1249,7 @@ function errorMessage(error) {
   return error.code === "functions/permission-denied" ? "Clave incorrecta. No se realiz\xF3 el cambio." : error.code === "functions/resource-exhausted" ? "Demasiados intentos. Espera 15 minutos antes de volver a intentarlo." : "No se pudo completar la consulta. Revisa la conexi\xF3n e intenta de nuevo.";
 }
 function clearPrivate() {
+  openDeliveryEditor.close();
   openAdvertising.close();
   openPaymentEditor.close();
   openMultipleEdit.close();
@@ -1576,3 +1641,8 @@ var openPaymentEditor = initPaymentEditor({ call: (name, data) => api(name)(data
 document.addEventListener("owner:payment", (e) => openPaymentEditor(e.detail.item));
 var openAdvertising = initAdvertising((name, data) => api(name)(data), () => loadOverview());
 var prepareNotifications = initNotifications((name, data) => api(name)(data));
+var openDeliveryEditor = initDeliveryEditor({ call: (name, data) => api(name)(data), onSaved: async () => {
+  await reloadAfterChange();
+  notice("Entrega actualizada. El seguimiento del cliente ya refleja el cambio.");
+} });
+document.addEventListener("owner:delivery", (e) => openDeliveryEditor(e.detail.item));
