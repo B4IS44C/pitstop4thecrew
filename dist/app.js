@@ -1,3 +1,141 @@
+// outputs/pitstop-owner/dist/chat-metrics-ui.js
+var duration = (ms) => ms === null || ms === void 0 ? "Sin datos" : ms < 6e4 ? "< 1 min" : ms < 36e5 ? Math.round(ms / 6e4) + " min" : (ms / 36e5).toFixed(1) + " h";
+var date = (t) => t ? new Date(t).toLocaleString("es-CR", { timeZone: "America/Costa_Rica" }) : "\u2014";
+function initChatMetrics({ call }) {
+  const nav = document.querySelector("nav.tabs"), button = document.createElement("button"), panel = document.createElement("section");
+  button.textContent = "Atenci\xF3n de chats";
+  button.id = "chats-tab";
+  nav.append(button);
+  panel.id = "chats-panel";
+  panel.className = "panel";
+  panel.hidden = true;
+  panel.innerHTML = `<p class="eyebrow">WHATSAPP \xB7 ATENCI\xD3N</p><h2>El tiempo tambi\xE9n cuenta.</h2><p>Clientes activados desde la extensi\xF3n. Lunes a viernes 11:00\u201318:00; s\xE1bado y domingo 10:00\u201318:00. Hora de Costa Rica.</p><p class="muted">Solo metadatos, sin contenido de mensajes. Los chats no abiertos y los per\xEDodos sin conexi\xF3n pueden faltar. Precisi\xF3n de un minuto. Las respuestas hist\xF3ricas o con cobertura incompleta no califican a los vendedores. Consultar estos nuevos datos requiere la clave del administrador.</p><div class="controls"><label>Per\xEDodo<select data-range><option value="month">Este mes</option><option value="six">\xDAltimos 6 meses</option><option value="year">Este a\xF1o</option><option value="all">Todo el tiempo disponible</option></select></label><button data-load class="primary">Consultar estad\xEDsticas</button><button data-clear>Cerrar estad\xEDsticas</button></div><p data-state role="status"></p><div data-results hidden><section class="kpis" data-kpis></section><section class="charts"><article class="panel"><h3>Dentro del objetivo</h3><div data-donut></div><p>Objetivo de referencia: 15 minutos laborales. Solo respuestas con cobertura continua.</p></article><article class="panel"><h3>D\xF3nde mejorar</h3><ul data-insights></ul><p data-historical></p></article></section><h3>Por vendedor</h3><p>Solo respuestas observadas enviadas desde un navegador vinculado. Tel\xE9fono u otro equipo: sin atribuir.</p><div class="table-wrap"><table><thead><tr><th>Vendedor</th><th>Respuestas</th><th>Promedio laboral</th></tr></thead><tbody data-sellers></tbody></table></div><h3>Clientes y tiempos</h3><label>Buscar n\xFAmero<input data-search type="search" placeholder="N\xFAmero de cliente"></label><p>\u201CPendiente\u201D indica el \xFAltimo mensaje observado sin respuesta observada; puede haber respuestas en otros dispositivos.</p><div class="table-wrap"><table><thead><tr><th>Cliente</th><th>Respuestas medidas / parciales</th><th>Primera observada</th><th>Promedio laboral</th><th>\xDAltima respuesta laboral</th><th>Espera laboral pendiente</th></tr></thead><tbody data-rows></tbody></table></div><h3>Equipos vinculados</h3><div data-devices></div></div><hr><details><summary>Instalar o vincular una extensi\xF3n</summary><p><a href="https://pitstop-cbe24.web.app/pitstop-atencion.zip" download>Descargar PitStop Atenci\xF3n para Chrome y Opera</a></p><p>Descomprime la carpeta. En chrome://extensions u opera://extensions activa Modo de desarrollador \u2192 Cargar descomprimida \u2192 selecciona la carpeta. Cada vendedor debe vincular su navegador.</p><div class="controls"><label>Vendedor<select data-seller><option>Jean</option><option>Isaac</option><option>Esteban</option></select></label><label>Nombre del equipo<input data-label maxlength="80" placeholder="Ej. Isaac \xB7 Oficina Chrome"></label><button data-pair class="primary">Crear c\xF3digo de vinculaci\xF3n</button></div><p data-pair-state role="status"></p><div data-code-box hidden><label>C\xF3digo de un solo uso<input data-code readonly></label><button data-copy>Copiar c\xF3digo</button><p>V\xE1lido por 5 minutos. P\xE9galo en la extensi\xF3n; permite enviar metadatos por 90 d\xEDas, hasta revocar el equipo. No entrega acceso a ventas.</p></div></details>`;
+  document.getElementById("dashboard").append(panel);
+  const $3 = (s) => panel.querySelector(s);
+  let report, busy = false;
+  button.onclick = () => {
+    document.getElementById("admin-business").hidden = true;
+    document.getElementById("testimonials-panel").hidden = true;
+    panel.hidden = false;
+    button.classList.add("selected");
+    for (const id of ["business-tab", "testimonials-tab"]) document.getElementById(id).classList.remove("selected");
+  };
+  for (const id of ["business-tab", "testimonials-tab"]) document.getElementById(id).addEventListener("click", () => {
+    panel.hidden = true;
+    button.classList.remove("selected");
+  });
+  const text = (tag, value) => {
+    const el = document.createElement(tag);
+    el.textContent = value;
+    return el;
+  };
+  function tableRows(target, rows2) {
+    target.replaceChildren();
+    for (const values of rows2) {
+      const tr = document.createElement("tr");
+      for (const value of values) tr.append(text("td", value));
+      target.append(tr);
+    }
+  }
+  function renderRows() {
+    const q = $3("[data-search]").value.replace(/\D/g, "");
+    tableRows($3("[data-rows]"), report.rows.filter((r) => r.phone.includes(q)).map((r) => ["+" + r.phone, `${r.verified} / ${r.partial}`, duration(r.firstMs), duration(r.averageMs), r.last ? duration(r.last.businessMs) + " \xB7 " + r.last.source : "\u2014", r.pending ? duration(r.pending.businessMs) + " \xB7 desde " + date(r.pending.at) : "Sin pendiente observado"]));
+  }
+  function render(data) {
+    report = data;
+    $3("[data-results]").hidden = false;
+    $3("[data-kpis]").replaceChildren();
+    for (const [label, value] of [["Clientes observados", data.clients], ["Promedio laboral", duration(data.averageMs)], ["Promedio total", duration(data.wallAverageMs)], ["Mediana / P90", duration(data.medianMs) + " / " + duration(data.p90Ms)], ["Pendientes observados", data.pending], ["Pendientes > 15 min laborales", data.late]]) {
+      const card = document.createElement("article");
+      card.className = "panel";
+      card.append(text("span", label), text("strong", value));
+      $3("[data-kpis]").append(card);
+    }
+    const percent = data.answered ? Math.round(data.within / data.answered * 100) : 0, d = $3("[data-donut]");
+    d.replaceChildren();
+    const ring = document.createElement("div");
+    ring.style.cssText = `width:150px;height:150px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#e90d29 ${percent}%,#e3e6ec 0);margin:16px auto`;
+    const center = text("strong", data.answered ? percent + "%" : "Sin datos");
+    center.style.cssText = "width:116px;height:116px;border-radius:50%;background:#fff;display:grid;place-items:center;color:#111";
+    ring.append(center);
+    d.append(ring, text("p", `${data.within} de ${data.answered} respuestas medidas dentro del objetivo.`));
+    $3("[data-insights]").replaceChildren(...data.insights.map((s) => text("li", s)));
+    $3("[data-historical]").textContent = `Hist\xF3rico / cobertura parcial: ${data.partial} respuestas. Promedio orientativo laboral: ${duration(data.historicalAverageMs)}. No representa el historial completo.`;
+    tableRows($3("[data-sellers]"), data.sellers.map((s) => [s.seller, s.count, duration(s.averageMs)]));
+    renderRows();
+    $3("[data-devices]").replaceChildren();
+    for (const device of data.devices) {
+      const box = document.createElement("p");
+      box.append(text("span", `${device.label} \xB7 ${device.seller} \xB7 \xFAltima sincronizaci\xF3n ${date(device.lastSeen)} \xB7 ${device.revoked ? "Revocado" : "Vinculado"} `));
+      if (!device.revoked) {
+        const revoke = text("button", "Revocar equipo");
+        revoke.onclick = async () => {
+          try {
+            await call("ownerChats", { action: "revoke", id: device.id });
+            revoke.disabled = true;
+            revoke.textContent = "Revocado";
+          } catch (e) {
+            $3("[data-state]").textContent = e.message;
+          }
+        };
+        box.append(revoke);
+      }
+      $3("[data-devices]").append(box);
+    }
+    $3("[data-state]").textContent = data.truncated ? "Se alcanz\xF3 el l\xEDmite de 20.000 mensajes. Informe incompleto: requiere ampliar la consulta antes de tomar decisiones." : `Datos observados \xB7 ${data.period.from} al ${data.period.to}`;
+  }
+  $3("[data-search]").oninput = () => {
+    if (report) renderRows();
+  };
+  $3("[data-clear]").onclick = () => {
+    report = null;
+    $3("[data-results]").hidden = true;
+    for (const s of ["[data-rows]", "[data-sellers]", "[data-devices]"]) $3(s).replaceChildren();
+    $3("[data-state]").textContent = "Estad\xEDsticas cerradas.";
+  };
+  $3("[data-load]").onclick = async () => {
+    if (busy) return;
+    busy = true;
+    $3("[data-load]").disabled = true;
+    try {
+      const { data } = await call("ownerChats", { action: "report", range: $3("[data-range]").value });
+      render(data);
+    } catch (e) {
+      $3("[data-state]").textContent = e.message || "No se pudo consultar.";
+    } finally {
+      busy = false;
+      $3("[data-load]").disabled = false;
+    }
+  };
+  $3("[data-pair]").onclick = async () => {
+    if (busy) return;
+    const label = $3("[data-label]").value.trim();
+    if (!label) {
+      $3("[data-pair-state]").textContent = "Escribe un nombre para identificar este equipo.";
+      return;
+    }
+    busy = true;
+    try {
+      const { data } = await call("ownerChats", { action: "pair", seller: $3("[data-seller]").value, label });
+      $3("[data-code]").value = data.code;
+      $3("[data-code-box]").hidden = false;
+      $3("[data-pair-state]").textContent = "C\xF3digo creado. \xDAsalo en los pr\xF3ximos 5 minutos.";
+    } catch (e) {
+      $3("[data-pair-state]").textContent = e.message;
+    } finally {
+      busy = false;
+    }
+  };
+  $3("[data-copy]").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText($3("[data-code]").value);
+      $3("[data-pair-state]").textContent = "C\xF3digo copiado.";
+    } catch {
+      $3("[data-pair-state]").textContent = "Selecciona el c\xF3digo y c\xF3pialo manualmente.";
+    }
+  };
+}
+
 // outputs/pitstop-owner/dist/delivery-editor.js
 function initDeliveryEditor({ call, onSaved }) {
   const dialog = document.createElement("dialog");
@@ -525,8 +663,8 @@ async function paymentPdf(q) {
   c.drawImage(logo, 46, 8, 280, 280);
   text("COMPROBANTE DE PAGO", 1130, 100, 43, "#fff", true, true);
   text(q.number, 1130, 158, 28, "#fff", true, true);
-  const date2 = new Intl.DateTimeFormat("es-CR", { timeZone: "America/Costa_Rica", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(q.issuedAt));
-  text("Fecha: " + date2, 1130, 210, 25, "#c4c6cc", false, true);
+  const date3 = new Intl.DateTimeFormat("es-CR", { timeZone: "America/Costa_Rica", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(q.issuedAt));
+  text("Fecha: " + date3, 1130, 210, 25, "#c4c6cc", false, true);
   text("RECIBIDO DE", 70, 365, 22, "#dd1222", true);
   name.forEach((line, i) => text(line, 70, 411 + i * 38, 30, "#202126", true));
   let y = 420 + nameHeight;
@@ -920,7 +1058,7 @@ function summarize(data, currency) {
 var $ = (id) => document.getElementById(id);
 var money = (minor, currency = "CRC") => new Intl.NumberFormat("es-CR", { style: "currency", currency, maximumFractionDigits: 2 }).format(minor / 100);
 var short = (minor, currency) => new Intl.NumberFormat("es-CR", { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(minor / 100);
-var date = (value) => new Intl.DateTimeFormat("es-CR", { timeZone: "America/Costa_Rica", dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+var date2 = (value) => new Intl.DateTimeFormat("es-CR", { timeZone: "America/Costa_Rica", dateStyle: "short", timeStyle: "short" }).format(new Date(value));
 function svgNode(tag, attrs = {}, text) {
   const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
   for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
@@ -1105,7 +1243,7 @@ function renderHistory(rows2, currency, target = "history-rows") {
     button.textContent = "Ver detalle";
     button.addEventListener("click", () => showDetail(item));
     detail.append(button);
-    tr.append(td(date(item.createdAt)), td(item.seller || "Sin vendedor"), product, td(item.saleType === "multiple" ? "Por repuesto" : item.shippingOrigin || "USA"), td(money(amount(item, currency), currency)), detail);
+    tr.append(td(date2(item.createdAt)), td(item.seller || "Sin vendedor"), product, td(item.saleType === "multiple" ? "Por repuesto" : item.shippingOrigin || "USA"), td(money(amount(item, currency), currency)), detail);
     body.append(tr);
   }
 }
@@ -1113,7 +1251,7 @@ function showDetail(item) {
   const fields = $("detail-fields");
   fields.replaceChildren();
   const customer = item.customer;
-  const data = [["Estado", item.kind === "sales" ? { pending: "Por aprobar", approved: "Aprobada", registered: "Aprobada", cancelled: "Cancelada", deleted: "Eliminada" }[item.status] || "Aprobada" : "C\xE1lculo"], ["Fecha", date(item.createdAt)], ["Vendedor", item.seller || "Sin vendedor"], ["Producto", item.product], ["Origen", item.saleType === "multiple" ? "Por repuesto" : item.shippingOrigin || "USA"], ["Peso", `${item.weightGrams / 1e3} kg`], ["Costo", money(item.costCents, "USD")], ["Env\xEDo", money(item.shippingCents, "USD")], ["Subtotal", money(item.subtotalCents, "USD")], ["Porcentaje", item.saleType === "multiple" ? "Seg\xFAn cada repuesto" : `${item.markupBps / 100}%`], ["Total antes del descuento", money(item.totalBeforeDiscountCents ?? item.totalCents, "USD")], ["Descuento", `${item.discountPercent ?? 0}% \xB7 ${money(item.discountCents ?? 0, "USD")}`], ["Ganancia bruta USD", money(item.profitCents, "USD")], ["Total USD", money(item.totalCents, "USD")], ["Total CRC", item.totalCrcMinor == null ? "Sin conversi\xF3n" : money(item.totalCrcMinor)], ["Tipo de cambio", item.exchangeRateCents ? `${money(item.exchangeRateCents)} por USD` : "Sin tasa"], ["Moneda del comprobante", item.paymentDocument?.currency || "CRC"], ["Monto abonado", item.paymentDocument ? money(item.paymentDocument.paidMinor, item.paymentDocument.currency) : "20% habitual"], ["Saldo pendiente", item.paymentDocument ? money(item.paymentDocument.balanceMinor, item.paymentDocument.currency) : "Disponible al recuperar comprobante"], ["Referencia", item.id], ["Venta asociada", item.saleId || item.calculationId || "Sin venta"]];
+  const data = [["Estado", item.kind === "sales" ? { pending: "Por aprobar", approved: "Aprobada", registered: "Aprobada", cancelled: "Cancelada", deleted: "Eliminada" }[item.status] || "Aprobada" : "C\xE1lculo"], ["Fecha", date2(item.createdAt)], ["Vendedor", item.seller || "Sin vendedor"], ["Producto", item.product], ["Origen", item.saleType === "multiple" ? "Por repuesto" : item.shippingOrigin || "USA"], ["Peso", `${item.weightGrams / 1e3} kg`], ["Costo", money(item.costCents, "USD")], ["Env\xEDo", money(item.shippingCents, "USD")], ["Subtotal", money(item.subtotalCents, "USD")], ["Porcentaje", item.saleType === "multiple" ? "Seg\xFAn cada repuesto" : `${item.markupBps / 100}%`], ["Total antes del descuento", money(item.totalBeforeDiscountCents ?? item.totalCents, "USD")], ["Descuento", `${item.discountPercent ?? 0}% \xB7 ${money(item.discountCents ?? 0, "USD")}`], ["Ganancia bruta USD", money(item.profitCents, "USD")], ["Total USD", money(item.totalCents, "USD")], ["Total CRC", item.totalCrcMinor == null ? "Sin conversi\xF3n" : money(item.totalCrcMinor)], ["Tipo de cambio", item.exchangeRateCents ? `${money(item.exchangeRateCents)} por USD` : "Sin tasa"], ["Moneda del comprobante", item.paymentDocument?.currency || "CRC"], ["Monto abonado", item.paymentDocument ? money(item.paymentDocument.paidMinor, item.paymentDocument.currency) : "20% habitual"], ["Saldo pendiente", item.paymentDocument ? money(item.paymentDocument.balanceMinor, item.paymentDocument.currency) : "Disponible al recuperar comprobante"], ["Referencia", item.id], ["Venta asociada", item.saleId || item.calculationId || "Sin venta"]];
   if (item.customerPhone && !customer) data.push(["Tel\xE9fono del cliente", "+" + item.customerPhone]);
   if (customer) data.push(["Cliente", customer.name || "Sin nombre"], ["Tel\xE9fono", customer.phone], ["Direcci\xF3n", customer.address]);
   for (const [label, value] of data) {
@@ -1416,7 +1554,7 @@ async function start() {
     auth = authentication.getAuth(firebase);
     await authentication.setPersistence(auth, authentication.browserSessionPersistence);
     api = (name) => async (data = {}) => {
-      const write = ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
+      const write = ["ownerChats", "ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
       const payload = write ? { ...data, changeKey: await requestChangeKey() } : data;
       try {
         return await functions.httpsCallable(functions.getFunctions(firebase, region), name)(payload);
@@ -1646,3 +1784,4 @@ var openDeliveryEditor = initDeliveryEditor({ call: (name, data) => api(name)(da
   notice("Entrega actualizada. El seguimiento del cliente ya refleja el cambio.");
 } });
 document.addEventListener("owner:delivery", (e) => openDeliveryEditor(e.detail.item));
+initChatMetrics({ call: (name, data) => api(name)(data) });
