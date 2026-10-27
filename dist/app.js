@@ -1,8 +1,149 @@
+// outputs/pitstop-owner/dist/delivery-board-model.js
+var localDay = (value = /* @__PURE__ */ new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Costa_Rica", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
+var addDay = (day, n) => new Date(Date.parse(day + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+function deliveryDate(s) {
+  if (s.deliveryOverride?.date) return s.deliveryOverride.date;
+  let day = localDay(s.createdAt?.toDate ? s.createdAt.toDate() : new Date(s.createdAt));
+  let left = Math.max(0, (s.tracking?.maxDays ?? 12) - 1);
+  while (left) {
+    day = addDay(day, 1);
+    if (!s.tracking?.businessDays || ![0, 6].includes((/* @__PURE__ */ new Date(day + "T12:00:00Z")).getUTCDay())) left--;
+  }
+  return day;
+}
+var trackable = (s) => !s.isTest && s.delivery !== "test_only" && !s.purging && ["approved", "registered"].includes(s.status);
+function deliveryState(s, today = localDay()) {
+  const date2 = deliveryDate(s), days = Math.round((Date.parse(date2 + "T12:00:00Z") - Date.parse(today + "T12:00:00Z")) / 864e5);
+  return { date: date2, days, state: days < 0 ? "overdue" : days <= 2 ? "soon" : "progress" };
+}
+
+// outputs/pitstop-owner/dist/delivery-board.js
+function initDeliveryBoard({ call, afterSave }) {
+  const host = document.createElement("section");
+  host.className = "panel delivery-board";
+  host.id = "entregas";
+  host.innerHTML = '<div class="section-title"><div><p class="eyebrow">SEGUIMIENTO DE ENTREGAS</p><h2>Estado de las ventas</h2></div><button data-refresh>Actualizar entregas \u21BB</button></div><p class="muted">Verde: en progreso \xB7 Amarillo: entrega hoy o en los pr\xF3ximos 2 d\xEDas \xB7 Rojo: fecha vencida. La fecha vencida no confirma una entrega real.</p><div class="filters"><label>Estado<select data-filter><option value="all">Todas</option><option value="soon">Pr\xF3ximas a entregar</option><option value="overdue">Vencidas</option><option value="progress">En progreso</option></select></label><label>Buscar cliente<input data-search type="search" placeholder="Nombre o tel\xE9fono" autocomplete="off"></label></div><div class="table-wrap"><table><thead><tr><th>Estado</th><th>Cliente</th><th>Ingreso</th><th>Entrega estimada</th><th>Producto</th><th>Editar fecha</th></tr></thead><tbody data-rows></tbody></table></div><p data-state role="status"></p>';
+  document.querySelector(".panel.history").before(host);
+  const dialog = document.createElement("dialog");
+  dialog.className = "multi-dialog";
+  dialog.innerHTML = '<form><h2>Editar fecha estimada de entrega</h2><p data-product></p><p data-entry class="muted"></p><label>Nueva fecha estimada<input type="date" data-date required></label><p>Solo cambia la fecha estimada. La fecha de ingreso y los dem\xE1s datos se conservan.</p><div class="management-actions"><button type="button" data-close>Volver</button><button type="submit">Guardar fecha</button></div><p data-error role="alert"></p></form>';
+  document.body.append(dialog);
+  const $3 = (s) => host.querySelector(s), d = (s) => dialog.querySelector(s);
+  let records = [], loading = false, selected, saving = false, requestId;
+  const clean = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  function open(s) {
+    selected = s;
+    requestId = crypto.randomUUID();
+    d("[data-product]").textContent = s.product;
+    d("[data-entry]").textContent = "Ingreso: " + localDay(new Date(s.createdAt)) + " (no editable)";
+    d("[data-date]").min = localDay();
+    d("[data-date]").value = deliveryState(s).date;
+    d("[data-error]").textContent = "";
+    dialog.showModal();
+  }
+  function render() {
+    const today = localDay(), q = clean($3("[data-search]").value), digits = q.replace(/\D/g, ""), filter = $3("[data-filter]").value;
+    const list = records.filter((s) => {
+      const name = clean(s.customer?.name), phone = s.customer?.phone || "";
+      return (!q || name.includes(q) || phone.includes(q) || digits.length > 0 && phone.replace(/\D/g, "").includes(digits)) && (filter === "all" || deliveryState(s, today).state === filter);
+    }).sort((a, b) => deliveryState(a).date.localeCompare(deliveryState(b).date));
+    $3("[data-rows]").replaceChildren();
+    for (const s of list) {
+      const info = deliveryState(s, today), tr = document.createElement("tr");
+      const values = [info.state === "overdue" ? "Fecha vencida" : info.state === "soon" ? info.days === 0 ? "Entrega hoy" : "Pr\xF3xima a entregar" : "En progreso", (s.customer?.name || "Sin nombre") + " \xB7 " + (s.customer?.phone || ""), localDay(new Date(s.createdAt)), info.date, s.items?.map((i) => i.product).filter(Boolean).join(" \xB7 ") || s.product];
+      values.forEach((v, i) => {
+        const td3 = document.createElement("td");
+        if (i === 0) {
+          const badge = document.createElement("span");
+          badge.className = "delivery-status " + info.state;
+          badge.textContent = v;
+          td3.append(badge);
+        } else td3.textContent = v;
+        tr.append(td3);
+      });
+      const td2 = document.createElement("td"), button = document.createElement("button");
+      button.textContent = "\u270E";
+      button.setAttribute("aria-label", "Editar fecha de entrega de " + (s.customer?.name || s.customer?.phone || s.product));
+      button.onclick = () => open(s);
+      td2.append(button);
+      tr.append(td2);
+      $3("[data-rows]").append(tr);
+    }
+    $3("[data-state]").textContent = `${list.length} ventas \xB7 ${records.length} ventas cargadas.`;
+  }
+  async function load() {
+    if (loading) return;
+    loading = true;
+    $3("[data-refresh]").disabled = true;
+    $3("[data-state]").textContent = "Cargando todas las ventas\u2026";
+    try {
+      const found = [];
+      let cursor2 = null;
+      do {
+        const { data } = await call("ownerHistory", { kind: "sales", cursor: cursor2 });
+        found.push(...data.rows.filter(trackable));
+        cursor2 = data.next;
+      } while (cursor2);
+      records = found;
+      render();
+      await route();
+    } catch (e) {
+      $3("[data-state]").textContent = "No se pudieron cargar las entregas. " + (e.message || "");
+    } finally {
+      loading = false;
+      $3("[data-refresh]").disabled = false;
+    }
+  }
+  async function route() {
+    const match = location.hash.match(/^#entregas\/([\w-]{1,180})$/);
+    if (!match) return;
+    host.scrollIntoView({ behavior: "smooth", block: "start" });
+    const sale = records.find((s) => s.id === match[1]);
+    if (sale && !dialog.open) open(sale);
+    else if (!sale) $3("[data-state]").textContent = "Este pedido no est\xE1 disponible; puede haberse eliminado o cancelado.";
+  }
+  d("[data-close]").onclick = () => {
+    if (!saving) dialog.close();
+  };
+  dialog.addEventListener("cancel", (e) => {
+    if (saving) e.preventDefault();
+  });
+  d("form").onsubmit = async (e) => {
+    e.preventDefault();
+    if (saving) return;
+    saving = true;
+    d("button[type=submit]").disabled = true;
+    try {
+      await call("ownerChangeSale", { saleId: selected.id, version: selected.version ?? 0, action: "deliveryDate", actionId: requestId, deliveryDate: d("[data-date]").value });
+      dialog.close();
+      history.replaceState(null, "", location.pathname + location.search + "#entregas");
+      await load();
+      await afterSave();
+    } catch (e2) {
+      d("[data-error]").textContent = e2.code === "functions/aborted" ? "La venta cambi\xF3. Cierra y actualiza antes de editar." : e2.message || "No se pudo guardar.";
+    } finally {
+      saving = false;
+      d("button[type=submit]").disabled = false;
+    }
+  };
+  $3("[data-search]").oninput = render;
+  $3("[data-filter]").onchange = render;
+  $3("[data-refresh]").onclick = load;
+  window.addEventListener("hashchange", () => {
+    if (records.length) route();
+    else load();
+  });
+  setInterval(() => {
+    if (records.length && !document.hidden) render();
+  }, 6e4);
+  return { load };
+}
+
 // outputs/pitstop-owner/dist/delivery-editor.js
 function initDeliveryEditor({ call, onSaved }) {
   const dialog = document.createElement("dialog");
   dialog.className = "multi-dialog";
-  dialog.innerHTML = '<form><div class="multi-heading"><h2>Editar entrega</h2><button type="button" data-close aria-label="Cerrar entrega">\xD7</button></div><p data-info></p><label>C\xF3mo ajustar<select data-mode><option value="date">Seleccionar fecha estimada</option><option value="extend">Agregar d\xEDas al plazo</option></select></label><label data-date-row>Fecha estimada de entrega<input type="date" data-date required></label><label data-days-row hidden>D\xEDas adicionales (calendario)<input type="number" data-days min="1" max="365" value="3" disabled></label><p>Los d\xEDas se agregan desde la fecha estimada actual, o desde hoy si el pedido ya est\xE1 atrasado. El c\xF3digo de seguimiento se conserva.</p><label class="payment-currency-choice"><input type="checkbox" data-arrived> Confirmar que el pedido ya lleg\xF3</label><p>Sin esta confirmaci\xF3n, el cliente ver\xE1 el pedido en tr\xE1nsito aunque venza el plazo. Desm\xE1rcala si se confirm\xF3 por error.</p><button type="submit" class="button">Guardar entrega</button><p data-error role="status"></p></form>';
+  dialog.innerHTML = '<form><div class="multi-heading"><h2>Editar entrega</h2><button type="button" data-close aria-label="Cerrar entrega">\xD7</button></div><p data-info></p><label>C\xF3mo ajustar<select data-mode><option value="date">Seleccionar fecha estimada</option><option value="extend">Agregar d\xEDas al plazo</option></select></label><label data-date-row>Fecha estimada de entrega<input type="date" data-date required></label><label data-days-row hidden>D\xEDas adicionales (calendario)<input type="number" data-days min="1" max="365" value="3" disabled></label><p>Los d\xEDas se agregan desde la fecha estimada actual, o desde hoy si el pedido ya est\xE1 atrasado. El c\xF3digo de seguimiento se conserva.</p><p>El tracker permanece en camino hasta terminar la fecha estimada y avanza autom\xE1ticamente al d\xEDa siguiente. Ampl\xEDa la fecha si hay un atraso.</p><button type="submit" class="button">Guardar entrega</button><p data-error role="status"></p></form>';
   document.body.append(dialog);
   const $3 = (s) => dialog.querySelector(s);
   let sale, busy = false, actionId, payload;
@@ -27,7 +168,7 @@ function initDeliveryEditor({ call, onSaved }) {
     busy = true;
     $3("button[type=submit]").disabled = true;
     try {
-      const delivery = { mode: $3("[data-mode]").value, date: $3("[data-date]").value, days: Number($3("[data-days]").value), arrived: $3("[data-arrived]").checked };
+      const delivery = { mode: $3("[data-mode]").value, date: $3("[data-date]").value, days: Number($3("[data-days]").value), arrived: false };
       const serialized = JSON.stringify(delivery);
       if (payload !== serialized) {
         payload = serialized;
@@ -53,7 +194,6 @@ function initDeliveryEditor({ call, onSaved }) {
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Costa_Rica", year: "numeric", month: "2-digit", day: "2-digit" }).format(/* @__PURE__ */ new Date());
     $3("[data-date]").min = today;
     $3("[data-date]").value = item.deliveryOverride?.date >= today ? item.deliveryOverride.date : today;
-    $3("[data-arrived]").checked = item.deliveryOverride?.arrived === true;
     mode();
     dialog.showModal();
   };
@@ -1344,7 +1484,10 @@ $2("access-form").addEventListener("submit", async (e) => {
     await api("ownerUnlock")({ key: $2("access-key").value });
     $2("access-key").value = "";
     await loadOverview();
-    if (overview) await loadHistory();
+    if (overview) {
+      await loadHistory();
+      await deliveryBoard.load();
+    }
   } catch (error) {
     notice(errorMessage(error), true);
   } finally {
@@ -1367,7 +1510,10 @@ $2("logout").addEventListener("click", async () => {
 });
 $2("refresh").addEventListener("click", async () => {
   await loadOverview();
-  if (overview) await loadHistory();
+  if (overview) {
+    await loadHistory();
+    await deliveryBoard.load();
+  }
 });
 $2("report-range").addEventListener("change", () => loadOverview());
 $2("currency").addEventListener("change", () => {
@@ -1428,11 +1574,15 @@ async function start() {
     $2("login").disabled = false;
     notice("Cargando panel\u2026");
     await loadOverview();
-    if (overview) await loadHistory();
+    if (overview) {
+      await loadHistory();
+      await deliveryBoard.load();
+    }
   } catch (error) {
     notice(errorMessage(error), true);
   }
 }
+var deliveryBoard = initDeliveryBoard({ call: (name, data) => api(name)(data), afterSave: () => loadOverview() });
 start();
 var editing;
 var actionPending;
@@ -1452,6 +1602,7 @@ async function reloadAfterChange() {
   await loadOverview();
   if (overview) {
     await loadHistory();
+    await deliveryBoard.load();
     if ($2("seller-sales-dialog").open) await loadSellerSales(true);
   }
 }
