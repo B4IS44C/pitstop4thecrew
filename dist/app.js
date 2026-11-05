@@ -1071,7 +1071,7 @@ function chart(target, labels, series, currency, title) {
   const container = $(target);
   container.replaceChildren();
   const width = 560, height = 240, left = 70, bottom = 34, top = 20, plotH = height - bottom - top, plotW = width - left - 12;
-  const max = Math.max(100, ...series.flatMap((s) => s.values.filter((v) => v !== null))) * 1.15;
+  const max = Math.max(100, ...series.flatMap((s) => s.values.filter(Number.isFinite))) * 1.15;
   const svg = svgNode("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": title });
   svg.append(svgNode("title", {}, title));
   for (let i = 0; i < 4; i++) {
@@ -1080,11 +1080,11 @@ function chart(target, labels, series, currency, title) {
   }
   const slot = plotW / labels.length, bar = Math.min(24, slot * 0.72 / series.length);
   labels.forEach((label, i) => {
-    if (labels.length < 10 || i % 3 === 0 || i === labels.length - 1) svg.append(svgNode("text", { x: left + slot * (i + 0.5), y: height - 10, "text-anchor": "middle", fill: "#8a8f99", "font-size": 10 }, label));
+    if (labels.length < 10 || i % Math.max(1, Math.ceil(labels.length / 8)) === 0 || i === labels.length - 1) svg.append(svgNode("text", { x: left + slot * (i + 0.5), y: height - 10, "text-anchor": "middle", fill: "#8a8f99", "font-size": 10 }, label));
     series.forEach((s, j) => {
       const value = s.values[i];
-      if (value === null) return;
-      const h = value / max * plotH, rect = svgNode("rect", { x: left + slot * (i + 0.5) + (j - series.length / 2) * bar, y: top + plotH - h, width: Math.max(2, bar - 3), height: Math.max(1, h), rx: 2, fill: s.color });
+      if (!Number.isFinite(value) || value <= 0) return;
+      const h = value / max * plotH, rect = svgNode("rect", { x: left + slot * (i + 0.5) + (j - series.length / 2) * bar, y: top + plotH - h, width: Math.max(2, bar - 3), height: h, rx: 2, fill: s.color });
       rect.append(svgNode("title", {}, `${s.name} \xB7 ${label}: ${money(value, currency)}`));
       svg.append(rect);
     });
@@ -1117,7 +1117,7 @@ function renderAdvertising(data, currency) {
   const spend = data.metrics.advertising[currency], m = data.metrics.currencies[currency], n = data.metrics.approved;
   $("ad-total").textContent = money(spend, currency);
   $("ad-per-sale").textContent = n ? "Publicidad por venta aprobada: " + money(Math.round(spend / n), currency) : "Sin ventas aprobadas para calcular costo por venta.";
-  $("ad-balance").textContent = "Ganancia bruta menos publicidad: " + money(m.profit - spend, currency);
+  $("ad-balance").textContent = m.missing ? "Ganancia no disponible: hay costos o importes incompletos." : "Ganancia bruta menos publicidad: " + money(m.profit - spend, currency);
   const c = data.metrics.conversion;
   donut("ad-donut", [{ label: "Cotizaciones convertidas", value: c.approved, color: "#dd1222" }, { label: "Otras cotizaciones", value: c.total - c.approved, color: "#bec5d0" }], c.total ? (100 * c.approved / c.total).toFixed(1) + "%" : "0%", "conversi\xF3n global");
   const body = $("ad-rows");
@@ -1149,11 +1149,12 @@ function donut(id, parts, center, caption, format = String) {
   let offset = 0;
   if (total > 0) for (const part of parts) {
     if (part.value <= 0) continue;
-    const segment = length * part.value / total;
-    const arc = svgNode("circle", { cx: 100, cy: 100, r, fill: "none", stroke: part.color, "stroke-width": 22, "stroke-dasharray": `${segment} ${length - segment}`, "stroke-dashoffset": -offset, transform: "rotate(-90 100 100)" });
+    const angle = 2 * Math.PI * part.value / total, start2 = offset - Math.PI / 2, end = start2 + angle;
+    const point = (radius, a) => `${100 + radius * Math.cos(a)} ${100 + radius * Math.sin(a)}`;
+    const arc = part.value === total ? svgNode("circle", { cx: 100, cy: 100, r: 70, fill: "none", stroke: part.color, "stroke-width": 22 }) : svgNode("path", { d: `M ${point(81, start2)} A 81 81 0 ${angle > Math.PI ? 1 : 0} 1 ${point(81, end)} L ${point(59, end)} A 59 59 0 ${angle > Math.PI ? 1 : 0} 0 ${point(59, start2)} Z`, fill: part.color });
     arc.append(svgNode("title", {}, part.label + ": " + format(part.value)));
     svg.append(arc);
-    offset += segment;
+    offset += angle;
   }
   svg.append(svgNode("text", { x: 100, y: 99, "text-anchor": "middle", "font-size": 25, "font-weight": 800, fill: "#20242d" }, center), svgNode("text", { x: 100, y: 120, "text-anchor": "middle", "font-size": 11, fill: "#737983" }, caption));
   box.append(svg);
@@ -1181,7 +1182,7 @@ function renderMetrics(m, currency) {
   $("gross-profit").textContent = f.missing ? "Datos incompletos" : money(f.profit, currency);
   $("gross-cost").textContent = f.missing ? "Datos incompletos" : money(f.cost, currency);
   $("gross-margin").textContent = f.missing ? `${f.missing} ventas necesitan revisar costos o tipo de cambio.` : `Margen bruto: ${percent(f.profit, f.revenue)} sobre ventas aprobadas`;
-  donut("sales-donut", [{ label: "Aprobadas", value: m.approved, color: "#dd1222" }, { label: "Canceladas", value: m.cancelled, color: "#a2a9b6" }], String(m.approved + m.pending + m.cancelled), "ventas");
+  donut("sales-donut", [{ label: "Aprobadas", value: m.approved, color: "#dd1222" }, { label: "Pendientes", value: m.pending, color: "#e6a236" }, { label: "Canceladas", value: m.cancelled, color: "#a2a9b6" }], String(m.approved + m.pending + m.cancelled), "ventas");
   if (f.missing || f.profit < 0) {
     $("profit-donut").replaceChildren();
     const p = document.createElement("p");
@@ -1189,7 +1190,7 @@ function renderMetrics(m, currency) {
     $("profit-donut").append(p);
   } else donut("profit-donut", [{ label: "Ganancia bruta", value: f.profit, color: "#dd1222" }, { label: "Repuesto + env\xEDo", value: f.cost, color: "#303946" }], percent(f.profit, f.revenue), "margen bruto", (n) => money(n, currency));
   const c = m.conversion;
-  donut("conversion-donut", [{ label: "Venta aprobada", value: c.approved, color: "#dd1222" }, { label: "Sin venta aprobada", value: c.other, color: "#bfc6d0" }], percent(c.approved, c.total), "conversi\xF3n");
+  donut("conversion-donut", [{ label: "Venta aprobada", value: c.approved, color: "#dd1222" }, { label: "Sin venta aprobada", value: c.total - c.approved, color: "#bfc6d0" }], percent(c.approved, c.total), "conversi\xF3n");
   const colors = ["#dd1222", "#303946", "#e6a236", "#74869d", "#bb6574"];
   donut("sellers-donut", m.sellers.map((s, i) => ({ label: s.name, value: s.count, color: colors[i % colors.length] })), String(m.approved), "ventas aprobadas");
 }
@@ -1427,11 +1428,12 @@ function clearPrivate() {
 async function loadOverview() {
   const stamp = ++generation;
   try {
-    const { data } = await api("ownerOverview")({ range: $2("report-range").value });
+    const { data } = await api("ownerOverview")({ range: $2("report-range").value, month: $2("report-month").value });
     if (stamp !== generation || !auth.currentUser) return;
     overview = data;
-    if (!$2("seller-day").value || !data.days.some((r) => r.day === $2("seller-day").value)) $2("seller-day").value = data.today;
-    $2("seller-day").max = data.today;
+    if (!$2("seller-day").value || !data.days.some((r) => r.day === $2("seller-day").value)) $2("seller-day").value = data.period.to;
+    $2("seller-day").max = data.period.to;
+    $2("seller-day").min = data.period.from;
     renderOverview(data, $2("currency").value);
     $2("dashboard").hidden = false;
     $2("logout").hidden = true;
@@ -1515,7 +1517,16 @@ $2("refresh").addEventListener("click", async () => {
     await deliveryBoard.load();
   }
 });
-$2("report-range").addEventListener("change", () => loadOverview());
+var currentReportMonth = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Costa_Rica", year: "numeric", month: "2-digit" }).format(/* @__PURE__ */ new Date());
+$2("report-month").value = currentReportMonth;
+$2("report-month").max = currentReportMonth;
+$2("report-range").addEventListener("change", () => {
+  $2("report-month-label").hidden = $2("report-range").value !== "custom";
+  loadOverview();
+});
+$2("report-month").addEventListener("change", () => {
+  if ($2("report-month").value && $2("report-month").reportValidity()) loadOverview();
+});
 $2("currency").addEventListener("change", () => {
   if (overview) renderOverview(overview, $2("currency").value);
   renderHistory(rows, $2("currency").value);
