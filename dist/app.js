@@ -487,7 +487,7 @@ async function multiplePaymentPdf(q) {
     c.fillRect(70, y - 28, 1060, 48);
     text("REPUESTO", 85, y, 21, true);
     text("TOTAL", 760, y, 21, true, true);
-    text(q.customPayment ? "ABONADO" : "ADELANTO 20%", 950, y, 21, true, true);
+    text(q.customPayment ? "ABONADO" : `ADELANTO ${q.advancePercent ?? 20}%`, 950, y, 21, true, true);
     text("SALDO", 1120, y, 21, true, true);
     y += 55;
   }
@@ -512,7 +512,7 @@ async function multiplePaymentPdf(q) {
     await finish();
     page();
   }
-  for (const [label, value] of [["Env\xEDo GRATIS (0%)", 0], ["Total de la compra", q.totalMinor], [q.customPayment ? "Monto abonado" : "Adelanto recibido \xB7 20%", q.paidMinor], ["Saldo pendiente", q.balanceMinor]]) {
+  for (const [label, value] of [["Env\xEDo GRATIS (0%)", 0], ["Total de la compra", q.totalMinor], [q.customPayment ? "Monto abonado" : `Adelanto recibido \xB7 ${q.advancePercent ?? 20}%`, q.paidMinor], ["Saldo pendiente", q.balanceMinor]]) {
     text(label, 85, y, 28, true);
     text(crc(value), 1120, y, 30, true, true);
     y += 65;
@@ -689,7 +689,7 @@ async function paymentPdf(q) {
   text(crc(q.totalMinor), 1108, y + 50, 32, "#202126", true, true);
   y += 92;
   box(70, y, 1060, 125, "#101114");
-  text(q.customPayment ? "MONTO ABONADO" : "MONTO PAGADO \xB7 ADELANTO 20%", 94, y + 43, 24, "#fff", true);
+  text(q.customPayment ? "MONTO ABONADO" : `MONTO PAGADO \xB7 ADELANTO ${q.advancePercent ?? 20}%`, 94, y + 43, 24, "#fff", true);
   text(crc(q.paidMinor), 1106, y + 94, 48, "#fff", true, true);
   y += 150;
   box(70, y, 1060, 90, "#fff0f1");
