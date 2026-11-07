@@ -940,7 +940,7 @@ function initTestimonials({ call }) {
   function render(items) {
     const list = $3("testimonial-list");
     list.replaceChildren();
-    $3("testimonial-count").textContent = items.length + " / 12 im\xE1genes";
+    $3("testimonial-count").textContent = items.length + " / 30 im\xE1genes";
     for (const item of items) {
       const card = document.createElement("article"), img = document.createElement("img"), title = document.createElement("p"), button = document.createElement("button");
       img.src = "https://pitstop-cbe24.web.app/api/public?image=" + item.id;
@@ -1016,7 +1016,7 @@ function initTestimonials({ call }) {
       requestId = null;
       $3("testimonial-state").textContent = "Publicado. Aparecer\xE1 en la p\xE1gina p\xFAblica en aproximadamente un minuto.";
     } catch {
-      $3("testimonial-state").textContent = "No se pudo publicar. Usa una imagen de hasta 4 MB y revisa si ya tienes 12 testimonios.";
+      $3("testimonial-state").textContent = "No se pudo publicar. Usa una imagen de hasta 4 MB y revisa si ya tienes 30 testimonios.";
     } finally {
       busy = false;
       $3("testimonial-fields").disabled = false;
