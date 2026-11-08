@@ -1,3 +1,50 @@
+// outputs/pitstop-owner/dist/sellers-ui.js
+function initSellers({ call }) {
+  const $3 = (id) => document.getElementById(id);
+  let busy = false;
+  function render(names) {
+    $3("sellers-list").replaceChildren(...names.map((name) => {
+      const item = document.createElement("li"), icon = document.createElement("span"), text = document.createElement("strong");
+      icon.className = "seller-avatar";
+      icon.textContent = name.slice(0, 1).toLocaleUpperCase("es");
+      text.textContent = name;
+      item.append(icon, text);
+      return item;
+    }));
+  }
+  $3("sellers-tab").addEventListener("click", async () => {
+    for (const id of ["admin-business", "testimonials-panel"]) $3(id).hidden = true;
+    $3("sellers-panel").hidden = false;
+    for (const id of ["business-tab", "testimonials-tab"]) $3(id).classList.remove("selected");
+    $3("sellers-tab").classList.add("selected");
+    $3("sellers-state").textContent = "Cargando equipo\u2026";
+    try {
+      const { data } = await call("ownerSellers", { action: "list" });
+      render(data.names);
+      $3("sellers-state").textContent = "";
+    } catch {
+      $3("sellers-state").textContent = "No se pudo cargar el equipo. Vuelve a abrir esta pesta\xF1a.";
+    }
+  });
+  $3("add-seller-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    busy = true;
+    $3("add-seller-button").disabled = true;
+    try {
+      const { data } = await call("ownerSellers", { action: "add", name: $3("new-seller-name").value });
+      render(data.names);
+      $3("add-seller-form").reset();
+      $3("sellers-state").textContent = "Vendedor agregado. Ya est\xE1 disponible al abrir o recargar la calculadora.";
+    } catch (e2) {
+      $3("sellers-state").textContent = e2.message || "No se pudo agregar el vendedor.";
+    } finally {
+      busy = false;
+      $3("add-seller-button").disabled = false;
+    }
+  });
+}
+
 // outputs/pitstop-owner/dist/delivery-board-model.js
 var localDay = (value = /* @__PURE__ */ new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Costa_Rica", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
 var addDay = (day, n) => new Date(Date.parse(day + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
@@ -932,6 +979,8 @@ function initTestimonials({ call }) {
   const $3 = (id) => document.getElementById(id);
   let busy = false, generation2 = 0, requestId = null;
   function show(testimonials) {
+    $3("sellers-panel").hidden = true;
+    $3("sellers-tab").classList.remove("selected");
     $3("admin-business").hidden = testimonials;
     $3("testimonials-panel").hidden = !testimonials;
     $3("business-tab").classList.toggle("selected", !testimonials);
@@ -1573,7 +1622,7 @@ async function start() {
     auth = authentication.getAuth(firebase);
     await authentication.setPersistence(auth, authentication.browserSessionPersistence);
     api = (name) => async (data = {}) => {
-      const write = ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
+      const write = ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerSellers" && data.action === "add" || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
       const payload = write ? { ...data, changeKey: await requestChangeKey() } : data;
       try {
         return await functions.httpsCallable(functions.getFunctions(firebase, region), name)(payload);
@@ -1808,3 +1857,4 @@ var openDeliveryEditor = initDeliveryEditor({ call: (name, data) => api(name)(da
   notice("Entrega actualizada. El seguimiento del cliente ya refleja el cambio.");
 } });
 document.addEventListener("owner:delivery", (e) => openDeliveryEditor(e.detail.item));
+initSellers({ call: (name, data) => api(name)(data) });
