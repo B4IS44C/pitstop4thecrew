@@ -1,3 +1,98 @@
+// outputs/pitstop-owner/dist/admin-shell.js
+function initAdminShell() {
+  const $2 = (id) => document.getElementById(id), business = $2("admin-business");
+  function view(name) {
+    if (!business) return;
+    business.dataset.view = name;
+    for (const id of ["business-tab", "history-nav", "delivery-nav"]) $2(id)?.classList.toggle("selected", id === { summary: "business-tab", history: "history-nav", delivery: "delivery-nav" }[name]);
+    window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+  }
+  if (business) {
+    view("summary");
+    $2("business-tab").addEventListener("click", () => view("summary"));
+    for (const [id, name] of [["history-nav", "history"], ["delivery-nav", "delivery"]]) $2(id).addEventListener("click", () => {
+      $2("business-tab").click();
+      view(name);
+      history.replaceState(null, "", name === "history" ? "#historial" : "#entregas");
+    });
+    for (const id of ["sellers-tab", "testimonials-tab"]) $2(id).addEventListener("click", () => {
+      for (const n of ["history-nav", "delivery-nav"]) $2(n).classList.remove("selected");
+      window.scrollTo({ top: 0 });
+    });
+    const route = () => {
+      if (location.hash.startsWith("#entregas")) $2("delivery-nav").click();
+      else if (location.hash === "#historial") $2("history-nav").click();
+      else if (location.hash === "#equipo") $2("sellers-tab").click();
+      else if (location.hash === "#galeria") $2("testimonials-tab").click();
+    };
+    const initialHash = location.hash;
+    let routed = false;
+    new MutationObserver(() => {
+      if (!routed && !$2("dashboard").hidden) {
+        routed = true;
+        if (initialHash.startsWith("#entregas")) {
+          $2("business-tab").click();
+          view("delivery");
+        } else route();
+      }
+    }).observe($2("dashboard"), { attributes: true, attributeFilter: ["hidden"] });
+  }
+  function enhance() {
+    for (const table of document.querySelectorAll("table")) {
+      if (!table.dataset.adaptive) {
+        table.dataset.adaptive = "true";
+        table.classList.add("adaptive-table");
+        const wrap = table.closest(".table-wrap");
+        if (wrap && !wrap.closest(".table-disclosure")) {
+          const d = document.createElement("details"), s = document.createElement("summary");
+          d.className = "table-disclosure";
+          d.open = true;
+          s.textContent = "Registros";
+          wrap.before(d);
+          d.append(s, wrap);
+        }
+      }
+      const labels = [...table.querySelectorAll("thead th")].map((t) => t.textContent.trim());
+      for (const row of table.querySelectorAll("tbody tr")) {
+        if (row.dataset.adaptive || row.cells.length < 2) continue;
+        row.dataset.adaptive = "true";
+        const cells = [...row.cells], body = row.parentElement.id;
+        let primary = body === "history-rows" || body === "seller-sales-rows" ? [2, 4] : body === "rows" ? [0, 1, 5] : body === "ad-rows" ? [1, 2] : body === "seller-rows" ? [0, 2] : [0, 1];
+        cells.forEach((cell, i) => {
+          cell.dataset.label = labels[i] || "Detalle";
+          cell.classList.toggle("row-primary", primary.includes(i));
+        });
+        const anchor = cells[primary.find((i) => !cells[i].querySelector("input")) ?? primary[0]], toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "row-toggle";
+        toggle.textContent = "\u2304";
+        toggle.setAttribute("aria-label", "Mostrar detalles del registro");
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.onclick = () => {
+          const open = row.dataset.expanded !== "true";
+          row.dataset.expanded = String(open);
+          toggle.setAttribute("aria-expanded", String(open));
+          toggle.setAttribute("aria-label", open ? "Ocultar detalles del registro" : "Mostrar detalles del registro");
+          toggle.textContent = open ? "\u2303" : "\u2304";
+        };
+        anchor.prepend(toggle);
+      }
+    }
+  }
+  enhance();
+  let scheduled = false;
+  const observer = new MutationObserver((records) => {
+    if (!records.some((r) => r.type === "childList") || scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      enhance();
+    });
+  });
+  observer.observe(document.querySelector("main"), { childList: true, subtree: true });
+  for (const d of document.querySelectorAll("dialog")) observer.observe(d, { childList: true, subtree: true });
+}
+
 // outputs/pitstop-owner/dist/config.js
 var firebaseConfig = {
   apiKey: "AIzaSyATSzfKdW4KHc5IRsZh5rDJoOQyqroojQ4",
@@ -217,3 +312,4 @@ async function start() {
   }
 }
 start();
+initAdminShell();
