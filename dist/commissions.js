@@ -199,7 +199,7 @@ async function start() {
     const auth = b.getAuth(app);
     await b.setPersistence(auth, b.browserSessionPersistence);
     await b.signInAnonymously(auth);
-    const team = (await c.httpsCallable(c.getFunctions(app, region), "ownerSellers")({ action: "list" })).data.names;
+    const team = (await c.httpsCallable(c.getFunctions(app, region), "ownerSellers")({ action: "list" })).data.allNames;
     $("seller").replaceChildren(...team.map((name) => new Option(name, name)));
     const fn = c.httpsCallable(c.getFunctions(app, region), "ownerCommissions");
     call = async (payload, write = false) => {

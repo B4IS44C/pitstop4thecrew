@@ -8,7 +8,27 @@ function initSellers({ call }) {
       icon.className = "seller-avatar";
       icon.textContent = name.slice(0, 1).toLocaleUpperCase("es");
       text.textContent = name;
-      item.append(icon, text);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "seller-remove";
+      remove.textContent = "Eliminar";
+      remove.setAttribute("aria-label", "Eliminar vendedor " + name);
+      remove.onclick = async () => {
+        if (busy || !confirm("\xBFEliminar a " + name + " de los vendedores activos? Sus ventas y c\xE1lculos se conservar\xE1n.")) return;
+        busy = true;
+        remove.disabled = true;
+        try {
+          const { data } = await call("ownerSellers", { action: "remove", name });
+          render(data.names);
+          $3("sellers-state").textContent = "Vendedor eliminado de la lista activa. Su historial se conserva.";
+        } catch (e) {
+          $3("sellers-state").textContent = e.message || "No se pudo eliminar.";
+        } finally {
+          busy = false;
+          remove.disabled = false;
+        }
+      };
+      item.append(icon, text, remove);
       return item;
     }));
   }
@@ -1499,16 +1519,18 @@ async function loadOverview() {
     notice(errorMessage(error), true);
   }
 }
+var historyFilters = { from: "", to: "", seller: "" };
 async function loadHistory(reset = true) {
   const stamp = ++historyGeneration, from = $2("from").value, to = $2("to").value;
   if (from && to && from > to) {
     $2("history-state").textContent = "La fecha inicial debe ser anterior a la final.";
     return;
   }
+  if (reset) historyFilters = { from, to, seller: $2("history-seller").value.trim() };
   $2("more").disabled = true;
   $2("history-state").textContent = "Cargando registros\u2026";
   try {
-    const { data } = await api("ownerHistory")({ kind, from, to, cursor: reset ? null : cursor });
+    const { data } = await api("ownerHistory")({ kind, ...historyFilters, cursor: reset ? null : cursor });
     if (stamp !== historyGeneration || !auth.currentUser) return;
     rows = reset ? data.rows : [...rows, ...data.rows];
     cursor = data.next;
@@ -1609,6 +1631,7 @@ $2("history-filters").addEventListener("submit", (e) => {
 $2("clear-filters").addEventListener("click", () => {
   $2("from").value = "";
   $2("to").value = "";
+  $2("history-seller").value = "";
   loadHistory();
 });
 $2("more").addEventListener("click", () => loadHistory(false));
@@ -1622,7 +1645,7 @@ async function start() {
     auth = authentication.getAuth(firebase);
     await authentication.setPersistence(auth, authentication.browserSessionPersistence);
     api = (name) => async (data = {}) => {
-      const write = ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerSellers" && data.action === "add" || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
+      const write = ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerSellers" && data.action !== "list" || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
       const payload = write ? { ...data, changeKey: await requestChangeKey() } : data;
       try {
         return await functions.httpsCallable(functions.getFunctions(firebase, region), name)(payload);
@@ -1631,6 +1654,11 @@ async function start() {
       }
     };
     await authentication.signInAnonymously(auth);
+    try {
+      const { data } = await api("ownerSellers")({ action: "list" });
+      $2("history-seller-options").replaceChildren(...data.allNames.map((n) => new Option(n, n)));
+    } catch {
+    }
     $2("login").disabled = false;
     notice("Cargando panel\u2026");
     await loadOverview();
