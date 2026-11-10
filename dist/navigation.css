@@ -1,0 +1,22 @@
+/* Five stable destinations; team tools live inside Equipo. */
+.floating-nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));width:520px;max-width:calc(100% - 24px);overflow:visible;gap:4px}
+.floating-nav :is(button,a){min-width:0;width:100%;font-size:11px;line-height:1.25;padding:10px 4px;min-height:60px;white-space:normal}
+.team-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:22px 0 28px}
+.team-actions :is(a,button){display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:58px;padding:16px;text-decoration:none;border:1px solid #41536b;border-radius:14px;background:#243349;color:#f5f7fb;font-size:14px;font-weight:600;line-height:1.4}
+.team-actions #attendance-tab{justify-content:flex-start}.attendance-back{margin-bottom:20px}
+@media(max-width:760px){
+.floating-nav{width:calc(100% - 24px);max-width:470px;gap:2px;padding:6px;bottom:calc(8px + env(safe-area-inset-bottom));border-radius:22px}
+.floating-nav :is(button,a){font-size:10px;min-height:58px;padding:8px 2px;letter-spacing:0;line-height:1.3}
+.floating-nav :is(button,a)>span{font-size:22px;line-height:24px}
+main{padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+main,.panel,.heading,.controls,.charts,.kpis,.profit-kpis,.filters,.table-wrap{min-width:0;max-width:100%}
+input,select,textarea{font-size:16px!important;min-width:0}
+input[type=date],input[type=month]{width:100%;max-width:100%;box-sizing:border-box}
+.management-actions{flex-wrap:wrap}.management-actions :is(button,a){min-height:44px}
+.row-toggle{width:44px;min-height:44px;right:6px;top:6px}
+.team-actions{grid-template-columns:1fr;gap:10px}
+.attendance-grid button{min-height:48px;padding:5px 2px;align-items:center}
+.attendance-grid small{display:none}.attendance-grid button.has-activity:after{content:'';width:5px;height:5px;border-radius:50%;background:#ff6d88}
+.attendance-person summary{overflow-wrap:anywhere}
+.sellers-list li{flex-wrap:wrap}.seller-remove{min-height:44px}
+}

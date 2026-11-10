@@ -20,6 +20,18 @@ function duration(rows2) {
   }
   return total;
 }
+function attendanceTimeline(rows2) {
+  const valid = rows2.filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start);
+  const points = [...new Set(valid.flatMap((r) => [r.start, r.end]))].sort((a, b) => a - b), segments = [];
+  for (let i = 1; i < points.length; i++) {
+    const start2 = points[i - 1], end = points[i], active = valid.filter((r) => r.start < end && r.end > start2);
+    const status = active.some((r) => r.status === "online") ? "online" : active.some((r) => r.status === "lunch") ? "lunch" : "offline";
+    const last = segments.at(-1);
+    if (last?.status === status) last.end = end;
+    else segments.push({ start: start2, end, status });
+  }
+  return segments;
+}
 function initAttendance(call) {
   const nav = document.querySelector(".floating-nav"), business = document.getElementById("admin-business");
   if (!business) return;
@@ -27,12 +39,18 @@ function initAttendance(call) {
   button.type = "button";
   button.id = "attendance-tab";
   button.innerHTML = '<span aria-hidden="true">\u25A6</span>Calendario';
-  nav.append(button);
+  document.getElementById("team-calendar-action").append(button);
   const panel = document.createElement("section");
   panel.className = "panel attendance";
   panel.id = "attendance-panel";
   panel.innerHTML = '<p class="eyebrow">ACTIVIDAD DE VENDEDORES</p><h1>Calendario de conexi\xF3n</h1><p class="muted">Hora de Costa Rica. Online indica actividad declarada o confirmada en la calculadora; no acredita trabajo fuera de la app. Los tiempos superpuestos del mismo vendedor se cuentan una sola vez.</p><div class="filters"><label>Mes<input id="attendance-month" type="month"></label><label>Vendedor<select id="attendance-seller"><option value="">Todos</option></select></label><button id="attendance-refresh" type="button">Actualizar</button></div><p id="attendance-state" role="status"></p><div class="attendance-week" aria-hidden="true"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div><div id="attendance-grid" class="attendance-grid"></div><div id="attendance-detail" class="attendance-detail"></div>';
   business.append(panel);
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "attendance-back";
+  back.textContent = "\u2190 Volver a Equipo";
+  back.onclick = () => document.getElementById("sellers-tab").click();
+  panel.prepend(back);
   const $3 = (id) => document.getElementById(id), today = new Date(Date.now() - 216e5).toISOString().slice(0, 10);
   $3("attendance-month").value = today.slice(0, 7);
   let rows2 = [], days = {}, selected = today, generation2 = 0;
@@ -52,15 +70,39 @@ function initAttendance(call) {
       return;
     }
     for (const name of [...new Set(data.map((r) => r.seller))].sort()) {
-      const items = data.filter((r) => r.seller === name), card = document.createElement("details"), summary = document.createElement("summary");
+      const segments = attendanceTimeline(data.filter((r) => r.seller === name)), total = duration(segments), card = document.createElement("article");
       card.className = "attendance-person";
-      summary.textContent = `${name} \xB7 Online ${hours(duration(items.filter((r) => r.status === "online")))} \xB7 Almuerzo ${hours(duration(items.filter((r) => r.status === "lunch")))}`;
-      card.append(summary);
-      for (const row of items.sort((a, b) => a.start - b.start)) {
-        const line = document.createElement("p");
-        line.textContent = `${time(row.start)} \u2013 ${time(row.end)} \xB7 ${row.status === "online" ? "Online" : "Almuerzo"}`;
-        card.append(line);
+      const title = document.createElement("h3");
+      title.textContent = name;
+      card.append(title);
+      const labels = { online: "Online", offline: "Offline", lunch: "Almuerzo" };
+      for (const status of ["online", "offline", "lunch"]) {
+        const elapsed = duration(segments.filter((r) => r.status === status)), percent = total ? elapsed / total * 100 : 0, row = document.createElement("div");
+        row.className = "attendance-meter " + status;
+        const label = document.createElement("div"), nameLabel = document.createElement("span"), amount2 = document.createElement("strong");
+        nameLabel.textContent = labels[status];
+        amount2.textContent = hours(elapsed);
+        label.append(nameLabel, amount2);
+        const progress = document.createElement("progress");
+        progress.max = 100;
+        progress.value = percent;
+        progress.setAttribute("aria-label", labels[status] + ": " + hours(elapsed));
+        row.append(label, progress);
+        card.append(row);
       }
+      const note = document.createElement("p");
+      note.className = "attendance-scope";
+      note.textContent = "Entre la primera conexi\xF3n y la \xFAltima actividad registrada. Offline indica los intervalos sin conexi\xF3n dentro de ese per\xEDodo.";
+      card.append(note);
+      const disclosure = document.createElement("details"), summary = document.createElement("summary");
+      summary.textContent = "Ver detalles";
+      disclosure.append(summary);
+      for (const row of segments) {
+        const line = document.createElement("p");
+        line.textContent = time(row.start) + " \u2013 " + time(row.end) + " \xB7 " + labels[row.status];
+        disclosure.append(line);
+      }
+      card.append(disclosure);
       target.append(card);
     }
   }
@@ -106,7 +148,7 @@ function initAttendance(call) {
   button.onclick = () => {
     $3("business-tab").click();
     business.dataset.view = "attendance";
-    for (const b of nav.querySelectorAll("button")) b.classList.toggle("selected", b === button);
+    for (const b of nav.querySelectorAll("button")) b.classList.toggle("selected", b.id === "sellers-tab");
     load();
   };
   nav.addEventListener("click", (e) => {
