@@ -1,3 +1,122 @@
+// outputs/pitstop-owner/dist/attendance.js
+function attendanceDays(rows2) {
+  const result = {};
+  for (const row of rows2) {
+    let start2 = row.start;
+    while (start2 < row.end) {
+      const day = new Date(start2 - 216e5).toISOString().slice(0, 10), next = Date.parse(day + "T00:00:00-06:00") + 864e5, end = Math.min(row.end, next);
+      (result[day] ??= []).push({ ...row, start: start2, end });
+      start2 = end;
+    }
+  }
+  return result;
+}
+function duration(rows2) {
+  const list = rows2.map((r) => [r.start, r.end]).sort((a, b) => a[0] - b[0]);
+  let total = 0, end = -Infinity;
+  for (const [a, b] of list) {
+    total += Math.max(0, b - Math.max(a, end));
+    end = Math.max(end, b);
+  }
+  return total;
+}
+function initAttendance(call) {
+  const nav = document.querySelector(".floating-nav"), business = document.getElementById("admin-business");
+  if (!business) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = "attendance-tab";
+  button.innerHTML = '<span aria-hidden="true">\u25A6</span>Calendario';
+  nav.append(button);
+  const panel = document.createElement("section");
+  panel.className = "panel attendance";
+  panel.id = "attendance-panel";
+  panel.innerHTML = '<p class="eyebrow">ACTIVIDAD DE VENDEDORES</p><h1>Calendario de conexi\xF3n</h1><p class="muted">Hora de Costa Rica. Online indica actividad declarada o confirmada en la calculadora; no acredita trabajo fuera de la app. Los tiempos superpuestos del mismo vendedor se cuentan una sola vez.</p><div class="filters"><label>Mes<input id="attendance-month" type="month"></label><label>Vendedor<select id="attendance-seller"><option value="">Todos</option></select></label><button id="attendance-refresh" type="button">Actualizar</button></div><p id="attendance-state" role="status"></p><div class="attendance-week" aria-hidden="true"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div><div id="attendance-grid" class="attendance-grid"></div><div id="attendance-detail" class="attendance-detail"></div>';
+  business.append(panel);
+  const $3 = (id) => document.getElementById(id), today = new Date(Date.now() - 216e5).toISOString().slice(0, 10);
+  $3("attendance-month").value = today.slice(0, 7);
+  let rows2 = [], days = {}, selected = today, generation2 = 0;
+  const time = (n) => new Date(n).toLocaleTimeString("es-CR", { timeZone: "America/Costa_Rica", hour: "2-digit", minute: "2-digit" }), hours = (n) => `${Math.floor(n / 36e5)} h ${Math.floor(n % 36e5 / 6e4)} min`;
+  function details(day) {
+    selected = day;
+    const target = $3("attendance-detail");
+    target.replaceChildren();
+    const heading = document.createElement("h2");
+    heading.textContent = "Actividad del " + day;
+    target.append(heading);
+    const data = (days[day] || []).filter((r) => !$3("attendance-seller").value || r.seller === $3("attendance-seller").value);
+    if (!data.length) {
+      const p = document.createElement("p");
+      p.textContent = "Sin conexiones registradas este d\xEDa.";
+      target.append(p);
+      return;
+    }
+    for (const name of [...new Set(data.map((r) => r.seller))].sort()) {
+      const items = data.filter((r) => r.seller === name), card = document.createElement("details"), summary = document.createElement("summary");
+      card.className = "attendance-person";
+      summary.textContent = `${name} \xB7 Online ${hours(duration(items.filter((r) => r.status === "online")))} \xB7 Almuerzo ${hours(duration(items.filter((r) => r.status === "lunch")))}`;
+      card.append(summary);
+      for (const row of items.sort((a, b) => a.start - b.start)) {
+        const line = document.createElement("p");
+        line.textContent = `${time(row.start)} \u2013 ${time(row.end)} \xB7 ${row.status === "online" ? "Online" : "Almuerzo"}`;
+        card.append(line);
+      }
+      target.append(card);
+    }
+  }
+  function render() {
+    days = attendanceDays(rows2);
+    const [y, m] = $3("attendance-month").value.split("-").map(Number), grid = $3("attendance-grid");
+    grid.replaceChildren();
+    const offset = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;
+    for (let i = 0; i < offset; i++) grid.append(document.createElement("span"));
+    for (let d = 1; d <= new Date(Date.UTC(y, m, 0)).getUTCDate(); d++) {
+      const day = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`, data = (days[day] || []).filter((r) => !$3("attendance-seller").value || r.seller === $3("attendance-seller").value), b = document.createElement("button");
+      b.type = "button";
+      b.textContent = String(d);
+      b.className = data.length ? "has-activity" : "";
+      b.setAttribute("aria-label", day + (data.length ? " con actividad" : " sin actividad"));
+      if (data.length) {
+        const small = document.createElement("small");
+        small.textContent = [...new Set(data.map((r) => r.seller))].join(", ");
+        b.append(small);
+      }
+      b.onclick = () => details(day);
+      grid.append(b);
+    }
+    details(selected.startsWith($3("attendance-month").value) ? selected : $3("attendance-month").value + "-01");
+  }
+  async function load() {
+    const g = ++generation2;
+    $3("attendance-state").textContent = "Cargando conexiones\u2026";
+    try {
+      const { data } = await call("ownerAttendance", { month: $3("attendance-month").value });
+      if (g !== generation2) return;
+      rows2 = data.rows;
+      const saved = $3("attendance-seller").value;
+      $3("attendance-seller").replaceChildren(new Option("Todos", ""));
+      for (const name of [...new Set(rows2.map((r) => r.seller))].sort()) $3("attendance-seller").add(new Option(name, name));
+      $3("attendance-seller").value = saved;
+      render();
+      $3("attendance-state").textContent = "Registro actualizado. Solo aparecen vendedores con actividad registrada.";
+    } catch {
+      $3("attendance-state").textContent = "No se pudo cargar el calendario. Intenta actualizar.";
+    }
+  }
+  button.onclick = () => {
+    $3("business-tab").click();
+    business.dataset.view = "attendance";
+    for (const b of nav.querySelectorAll("button")) b.classList.toggle("selected", b === button);
+    load();
+  };
+  nav.addEventListener("click", (e) => {
+    if (!button.contains(e.target)) button.classList.remove("selected");
+  });
+  $3("attendance-refresh").onclick = load;
+  $3("attendance-month").onchange = load;
+  $3("attendance-seller").onchange = render;
+}
+
 // outputs/pitstop-owner/dist/admin-shell.js
 function initAdminShell() {
   const $3 = (id) => document.getElementById(id), business = $3("admin-business");
@@ -1988,3 +2107,4 @@ $2("history-today").onclick = () => {
   $2("to").value = day;
   loadHistory();
 };
+initAttendance((name, data) => api(name)(data));
