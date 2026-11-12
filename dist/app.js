@@ -1,3 +1,88 @@
+// outputs/pitstop-owner/dist/budget-ui.js
+function initBudget(call) {
+  const host = document.getElementById("admin-business");
+  if (!host) return;
+  const section = document.createElement("section");
+  section.id = "presupuesto";
+  section.className = "panel budget-panel";
+  section.innerHTML = '<p class="eyebrow">CONTROL DE PRESUPUESTO</p><h2>Cuenta de banco</h2><p class="muted">Registro interno. No est\xE1 conectado a una cuenta bancaria ni realiza transferencias.</p><strong class="budget-balance" data-balance>\u2014</strong><div class="management-actions"><button type="button" class="primary" data-income>Ingresar</button><button type="button" data-expense>Gastar</button><button type="button" data-refresh>Actualizar</button></div><p role="status" data-state></p><details class="budget-history"><summary>Ver movimientos</summary><div data-list></div><button type="button" data-more hidden>Ver m\xE1s</button></details>';
+  host.append(section);
+  const dialog = document.createElement("dialog");
+  dialog.className = "budget-dialog";
+  dialog.innerHTML = '<form><h2 data-title></h2><label>Monto en colones<input name="amount" inputmode="decimal" required maxlength="13" placeholder="Ej. 25000"></label><small>Sin separadores de miles.</small><label>Motivo<textarea name="reason" required maxlength="240" rows="3" placeholder="\xBFPor qu\xE9 se ingresa o se gasta este monto?"></textarea></label><p data-error role="alert"></p><div class="management-actions"><button type="button" data-cancel>Cancelar</button><button type="submit" class="primary">Guardar movimiento</button></div></form>';
+  document.body.append(dialog);
+  const $3 = (s) => section.querySelector(s), d = (s) => dialog.querySelector(s), money2 = (n) => new Intl.NumberFormat("es-CR", { style: "currency", currency: "CRC" }).format(n / 100);
+  let cursor2 = null, busy = false, loading = false, id, type, ready = false;
+  async function load(more = false) {
+    if (loading) return;
+    loading = true;
+    $3("[data-state]").textContent = "Cargando presupuesto\u2026";
+    try {
+      const { data } = await call("ownerBudget", { action: "list", cursor: more ? cursor2 : null });
+      $3("[data-balance]").textContent = money2(data.balanceMinor);
+      if (!more) $3("[data-list]").replaceChildren();
+      for (const item of data.rows) {
+        const card = document.createElement("details"), summary = document.createElement("summary"), reason = document.createElement("p"), date2 = document.createElement("p");
+        summary.textContent = (item.type === "income" ? "Ingreso +" : "Gasto \u2212") + money2(item.amountMinor);
+        reason.textContent = item.reason;
+        date2.textContent = new Date(item.createdAt).toLocaleString("es-CR", { timeZone: "America/Costa_Rica" });
+        card.append(summary, date2, reason);
+        $3("[data-list]").append(card);
+      }
+      cursor2 = data.next;
+      $3("[data-more]").hidden = !cursor2;
+      $3("[data-state]").textContent = data.rows.length ? "Saldo actualizado." : "A\xFAn no hay movimientos.";
+    } catch {
+      $3("[data-state]").textContent = "No se pudo cargar el presupuesto. Intenta actualizar.";
+    } finally {
+      loading = false;
+    }
+  }
+  function open(kind2) {
+    type = kind2;
+    id = crypto.randomUUID();
+    d("form").reset();
+    d("[data-title]").textContent = kind2 === "income" ? "Ingresar al presupuesto" : "Gastar del presupuesto";
+    d("[data-error]").textContent = "";
+    dialog.showModal();
+  }
+  $3("[data-income]").onclick = () => open("income");
+  $3("[data-expense]").onclick = () => open("expense");
+  $3("[data-refresh]").onclick = () => load();
+  $3("[data-more]").onclick = () => load(true);
+  d("[data-cancel]").onclick = () => {
+    if (!busy) dialog.close();
+  };
+  dialog.addEventListener("cancel", (e) => {
+    if (busy) e.preventDefault();
+  });
+  d("form").onsubmit = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    busy = true;
+    for (const el of dialog.querySelectorAll("button,input,textarea")) el.disabled = true;
+    try {
+      await call("ownerBudget", { action: "save", id, type, amount: d("[name=amount]").value.trim(), reason: d("[name=reason]").value.trim() });
+      dialog.close();
+      await load();
+    } catch (e2) {
+      d("[data-error]").textContent = e2.message || "No se pudo registrar. Reintenta sin cerrar esta ventana.";
+    } finally {
+      busy = false;
+      for (const el of dialog.querySelectorAll("button,input,textarea")) el.disabled = false;
+    }
+  };
+  const activate = () => {
+    if (!document.getElementById("dashboard").hidden && !ready) {
+      ready = true;
+      load();
+      if (location.hash === "#presupuesto") section.scrollIntoView({ block: "start" });
+    }
+  };
+  new MutationObserver(activate).observe(document.getElementById("dashboard"), { attributes: true, attributeFilter: ["hidden"] });
+  activate();
+}
+
 // outputs/pitstop-owner/dist/attendance.js
 function attendanceDays(rows2) {
   const result = {};
@@ -20,15 +105,17 @@ function duration(rows2) {
   }
   return total;
 }
-function attendanceTimeline(rows2) {
+function attendanceTimeline(rows2, day, now = Date.now()) {
   const valid = rows2.filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start);
-  const points = [...new Set(valid.flatMap((r) => [r.start, r.end]))].sort((a, b) => a - b), segments = [];
+  const start2 = day ? Date.parse(day + "T09:00:00-06:00") : Math.min(...valid.map((r) => r.start)), end = day ? Math.min(Date.parse(day + "T18:00:00-06:00"), now) : Math.max(...valid.map((r) => r.end));
+  if (!Number.isFinite(start2) || !Number.isFinite(end) || end <= start2) return [];
+  const points = [.../* @__PURE__ */ new Set([start2, end, ...valid.flatMap((r) => [r.start, r.end]).filter((t) => t > start2 && t < end)])].sort((a, b) => a - b), segments = [];
   for (let i = 1; i < points.length; i++) {
-    const start2 = points[i - 1], end = points[i], active = valid.filter((r) => r.start < end && r.end > start2);
+    const start3 = points[i - 1], end2 = points[i], active = valid.filter((r) => r.start < end2 && r.end > start3);
     const status = active.some((r) => r.status === "online") ? "online" : active.some((r) => r.status === "lunch") ? "lunch" : "offline";
     const last = segments.at(-1);
-    if (last?.status === status) last.end = end;
-    else segments.push({ start: start2, end, status });
+    if (last?.status === status) last.end = end2;
+    else segments.push({ start: start3, end: end2, status });
   }
   return segments;
 }
@@ -53,7 +140,7 @@ function initAttendance(call) {
   panel.prepend(back);
   const $3 = (id) => document.getElementById(id), today = new Date(Date.now() - 216e5).toISOString().slice(0, 10);
   $3("attendance-month").value = today.slice(0, 7);
-  let rows2 = [], days = {}, selected = today, generation2 = 0;
+  let rows2 = [], days = {}, selected = today, generation2 = 0, serverNow = Date.now();
   const time = (n) => new Date(n).toLocaleTimeString("es-CR", { timeZone: "America/Costa_Rica", hour: "2-digit", minute: "2-digit" }), hours = (n) => `${Math.floor(n / 36e5)} h ${Math.floor(n % 36e5 / 6e4)} min`;
   function details(day) {
     selected = day;
@@ -70,7 +157,7 @@ function initAttendance(call) {
       return;
     }
     for (const name of [...new Set(data.map((r) => r.seller))].sort()) {
-      const segments = attendanceTimeline(data.filter((r) => r.seller === name)), total = duration(segments), card = document.createElement("article");
+      const segments = attendanceTimeline(data.filter((r) => r.seller === name), day, serverNow), total = duration(segments), card = document.createElement("article");
       card.className = "attendance-person";
       const title = document.createElement("h3");
       title.textContent = name;
@@ -92,7 +179,8 @@ function initAttendance(call) {
       }
       const note = document.createElement("p");
       note.className = "attendance-scope";
-      note.textContent = "Entre la primera conexi\xF3n y la \xFAltima actividad registrada. Offline indica los intervalos sin conexi\xF3n dentro de ese per\xEDodo.";
+      const lunch = duration(data.filter((r) => r.seller === name && r.status === "lunch"));
+      note.textContent = "Jornada 9:00 a. m. \u2013 6:00 p. m. \xB7 Costa Rica. Hoy se cuenta \xFAnicamente el tiempo transcurrido. Almuerzo registrado: " + hours(lunch) + (lunch > 36e5 ? " \xB7 Exceso: " + hours(lunch - 36e5) : " \xB7 Permitido: 1 h") + ".";
       card.append(note);
       const disclosure = document.createElement("details"), summary = document.createElement("summary");
       summary.textContent = "Ver detalles";
@@ -135,6 +223,7 @@ function initAttendance(call) {
       const { data } = await call("ownerAttendance", { month: $3("attendance-month").value });
       if (g !== generation2) return;
       rows2 = data.rows;
+      serverNow = data.serverNow || Date.now();
       const saved = $3("attendance-seller").value;
       $3("attendance-seller").replaceChildren(new Option("Todos", ""));
       for (const name of [...new Set(rows2.map((r) => r.seller))].sort()) $3("attendance-seller").add(new Option(name, name));
@@ -1901,7 +1990,7 @@ async function start() {
     auth = authentication.getAuth(firebase);
     await authentication.setPersistence(auth, authentication.browserSessionPersistence);
     api = (name) => async (data = {}) => {
-      const write = ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerSellers" && data.action !== "list" || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
+      const write = name === "ownerBudget" && data.action === "save" || ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerSellers" && data.action !== "list" || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
       const payload = write ? { ...data, changeKey: await requestChangeKey() } : data;
       try {
         return await functions.httpsCallable(functions.getFunctions(firebase, region), name)(payload);
@@ -2150,3 +2239,4 @@ $2("history-today").onclick = () => {
   loadHistory();
 };
 initAttendance((name, data) => api(name)(data));
+initBudget((name, data) => api(name)(data));
