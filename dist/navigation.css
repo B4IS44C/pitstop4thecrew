@@ -20,3 +20,4 @@ input[type=date],input[type=month]{width:100%;max-width:100%;box-sizing:border-b
 .attendance-person summary{overflow-wrap:anywhere}
 .sellers-list li{flex-wrap:wrap}.seller-remove{min-height:44px}
 }
+@media(max-width:760px){.controls #report-day-label{grid-column:1/-1;min-width:0}}

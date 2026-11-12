@@ -1842,7 +1842,7 @@ function clearPrivate() {
 async function loadOverview() {
   const stamp = ++generation;
   try {
-    const { data } = await api("ownerOverview")({ range: $2("report-range").value, month: $2("report-month").value });
+    const { data } = await api("ownerOverview")({ range: $2("report-range").value, month: $2("report-month").value, day: $2("report-day").value });
     if (stamp !== generation || !auth.currentUser) return;
     overview = data;
     if (!$2("seller-day").value || !data.days.some((r) => r.day === $2("seller-day").value)) $2("seller-day").value = data.period.to;
@@ -1934,10 +1934,16 @@ $2("refresh").addEventListener("click", async () => {
   }
 });
 var currentReportMonth = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Costa_Rica", year: "numeric", month: "2-digit" }).format(/* @__PURE__ */ new Date());
+$2("report-day").value = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Costa_Rica", year: "numeric", month: "2-digit", day: "2-digit" }).format(/* @__PURE__ */ new Date());
+$2("report-day").max = $2("report-day").value;
+$2("report-day").onchange = () => {
+  if ($2("report-day").value && $2("report-day").reportValidity()) loadOverview();
+};
 $2("report-month").value = currentReportMonth;
 $2("report-month").max = currentReportMonth;
 $2("report-range").addEventListener("change", () => {
   $2("report-month-label").hidden = $2("report-range").value !== "custom";
+  $2("report-day-label").hidden = $2("report-range").value !== "day";
   loadOverview();
 });
 $2("report-month").addEventListener("change", () => {
@@ -2240,3 +2246,17 @@ $2("history-today").onclick = () => {
 };
 initAttendance((name, data) => api(name)(data));
 initBudget((name, data) => api(name)(data));
+var overviewRefreshBusy = false;
+async function refreshVisibleOverview() {
+  if (overviewRefreshBusy || document.visibilityState !== "visible" || !auth?.currentUser || $2("dashboard").hidden || $2("admin-business").hidden || $2("admin-business").dataset.view !== "summary" || document.querySelector("dialog[open]")) return;
+  overviewRefreshBusy = true;
+  try {
+    await loadOverview();
+  } finally {
+    overviewRefreshBusy = false;
+  }
+}
+setInterval(refreshVisibleOverview, 6e4);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshVisibleOverview();
+});
