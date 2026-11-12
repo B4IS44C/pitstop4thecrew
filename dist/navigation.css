@@ -21,3 +21,4 @@ input[type=date],input[type=month]{width:100%;max-width:100%;box-sizing:border-b
 .sellers-list li{flex-wrap:wrap}.seller-remove{min-height:44px}
 }
 @media(max-width:760px){.controls #report-day-label{grid-column:1/-1;min-width:0}}
+.controls .period-check{display:flex;align-items:center;gap:10px;max-width:260px;line-height:1.5;font-size:13px;grid-column:1/-1}.controls .period-check input[type=checkbox]{flex:0 0 22px;width:22px;height:22px;min-height:22px;margin:0}
