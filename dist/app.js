@@ -5,14 +5,63 @@ function initBudget(call) {
   const section = document.createElement("section");
   section.id = "presupuesto";
   section.className = "panel budget-panel";
-  section.innerHTML = '<p class="eyebrow">CONTROL DE PRESUPUESTO</p><h2>Cuenta de banco</h2><p class="muted">Registro interno. No est\xE1 conectado a una cuenta bancaria ni realiza transferencias.</p><strong class="budget-balance" data-balance>\u2014</strong><div class="management-actions"><button type="button" class="primary" data-income>Ingresar</button><button type="button" data-expense>Gastar</button><button type="button" data-refresh>Actualizar</button></div><p role="status" data-state></p><details class="budget-history"><summary>Ver movimientos</summary><div data-list></div><button type="button" data-more hidden>Ver m\xE1s</button></details>';
+  section.innerHTML = `<div class="section-title"><div><p class="eyebrow">CONTROL FINANCIERO</p><h2>Presupuesto y movimientos</h2></div><span class="budget-label">Cuenta interna \xB7 CRC</span></div><p class="muted">Saldo independiente de las ventas y ganancias. Los gastos de publicidad y los pagos de comisiones se descuentan aqu\xED.</p><div class="budget-top"><div><span>Saldo del presupuesto</span><strong class="budget-balance" data-balance>\u2014</strong></div><div class="management-actions"><button type="button" class="primary" data-income>+ Ingresar</button><button type="button" data-expense>\u2212 Gastar</button><span data-ad-slot></span><button type="button" data-refresh>Actualizar</button></div></div><p role="status" data-state></p><div class="finance-filters"><label>Movimientos<select data-filter><option value="all">Todos</option><option value="income">Ingresos</option><option value="expense">Gastos</option><option value="advertising">Publicidad</option><option value="commission">Comisiones</option></select></label><label>Buscar<input type="search" data-search placeholder="Motivo, responsable o vendedor"></label></div><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Detalle</th><th>Registrado por</th><th>Tipo</th><th>Monto</th><th>Acciones</th></tr></thead><tbody data-list id="budget-rows"></tbody></table></div><button type="button" data-more hidden>Cargar m\xE1s movimientos</button><details class="finance-ad"><summary>Publicidad y conversi\xF3n del per\xEDodo</summary><div data-ad-content></div></details>`;
   host.append(section);
+  const ad = document.querySelector(".advertising-panel");
+  if (ad) {
+    const add = document.getElementById("ad-add");
+    add.textContent = "Publicidad";
+    section.querySelector("[data-ad-slot]").append(add);
+    ad.querySelector(".section-title").remove();
+    const table = ad.querySelector(".table-disclosure") || ad.querySelector(".table-wrap");
+    if (table) {
+      const legacy = document.createElement("div");
+      legacy.hidden = true;
+      table.before(legacy);
+      legacy.append(table);
+    }
+    ad.classList.remove("panel");
+    section.querySelector("[data-ad-content]").append(ad);
+  }
   const dialog = document.createElement("dialog");
   dialog.className = "budget-dialog";
-  dialog.innerHTML = '<form><h2 data-title></h2><label>Monto en colones<input name="amount" inputmode="decimal" required maxlength="13" placeholder="Ej. 25000"></label><small>Sin separadores de miles.</small><label>Motivo<textarea name="reason" required maxlength="240" rows="3" placeholder="\xBFPor qu\xE9 se ingresa o se gasta este monto?"></textarea></label><p data-error role="alert"></p><div class="management-actions"><button type="button" data-cancel>Cancelar</button><button type="submit" class="primary">Guardar movimiento</button></div></form>';
+  dialog.innerHTML = `<form><div class="section-title"><h2 data-title></h2><button type="button" data-cancel>Cerrar \xD7</button></div><label>Registrado por<select name="recordedBy" required><option value="">Seleccionar responsable</option><option>Isaac</option><option>Jean</option><option>Esteban</option></select></label><label>Tipo<select name="type"><option value="income">Ingreso</option><option value="expense">Gasto</option></select></label><label>Monto en colones<input name="amount" inputmode="decimal" required maxlength="13" placeholder="Ej. 25000"></label><small>Sin separadores de miles.</small><label>Motivo<textarea name="reason" required maxlength="240" rows="3"></textarea></label><p class="muted" data-note></p><p data-error role="alert"></p><div class="management-actions"><button type="button" data-delete class="danger" hidden>Eliminar movimiento</button><button type="submit" class="primary">Guardar cambios</button></div></form>`;
   document.body.append(dialog);
   const $3 = (s) => section.querySelector(s), d = (s) => dialog.querySelector(s), money2 = (n) => new Intl.NumberFormat("es-CR", { style: "currency", currency: "CRC" }).format(n / 100);
-  let cursor2 = null, busy = false, loading = false, id, type, ready = false;
+  let cursor2 = null, busy = false, loading = false, ready = false, rows2 = [], item, actionId, confirmDelete = false;
+  function paint() {
+    const body = $3("[data-list]");
+    body.replaceChildren();
+    const filter = $3("[data-filter]").value, search = $3("[data-search]").value.trim().toLocaleLowerCase("es");
+    const filtered = rows2.filter((r) => !r.deletedAt && (filter === "all" || r.type === filter || r.source === filter) && [r.reason, r.recordedBy, r.payee].join(" ").toLocaleLowerCase("es").includes(search));
+    for (const row of filtered) {
+      const tr = document.createElement("tr");
+      for (const value of [row.day ? row.day.split("-").reverse().join("/") : new Date(row.createdAt).toLocaleDateString("es-CR", { timeZone: "America/Costa_Rica" }), row.reason, row.recordedBy || "No indicado", row.source === "commission" ? "Comisiones" : row.source === "advertising" ? "Publicidad" : row.type === "income" ? "Ingreso" : "Gasto", (row.type === "income" ? "+" : "\u2212") + money2(row.amountMinor)]) {
+        const td2 = document.createElement("td");
+        td2.textContent = value;
+        tr.append(td2);
+      }
+      tr.cells[4].className = row.type === "income" ? "finance-income" : "finance-expense";
+      const actions = document.createElement("td"), edit = document.createElement("button");
+      edit.textContent = "Editar";
+      edit.onclick = () => {
+        if (row.source === "advertising") {
+          if (row.advertising) document.dispatchEvent(new CustomEvent("owner:ad-edit", { detail: row.advertising }));
+          else $3("[data-state]").textContent = "Actualiza para cargar los datos de publicidad.";
+        } else open(row.type, row);
+      };
+      actions.append(edit);
+      tr.append(actions);
+      body.append(tr);
+    }
+    if (!filtered.length) {
+      const tr = document.createElement("tr"), td2 = document.createElement("td");
+      td2.colSpan = 6;
+      td2.textContent = "No hay movimientos para mostrar.";
+      tr.append(td2);
+      body.append(tr);
+    }
+  }
   async function load(more = false) {
     if (loading) return;
     loading = true;
@@ -20,58 +69,75 @@ function initBudget(call) {
     try {
       const { data } = await call("ownerBudget", { action: "list", cursor: more ? cursor2 : null });
       $3("[data-balance]").textContent = money2(data.balanceMinor);
-      if (!more) $3("[data-list]").replaceChildren();
-      for (const item of data.rows) {
-        const card = document.createElement("details"), summary = document.createElement("summary"), reason = document.createElement("p"), date2 = document.createElement("p");
-        summary.textContent = (item.type === "income" ? "Ingreso +" : "Gasto \u2212") + money2(item.amountMinor);
-        reason.textContent = item.reason;
-        date2.textContent = new Date(item.createdAt).toLocaleString("es-CR", { timeZone: "America/Costa_Rica" });
-        card.append(summary, date2, reason);
-        $3("[data-list]").append(card);
-      }
+      rows2 = more ? [...rows2, ...data.rows] : data.rows;
       cursor2 = data.next;
       $3("[data-more]").hidden = !cursor2;
-      $3("[data-state]").textContent = data.rows.length ? "Saldo actualizado." : "A\xFAn no hay movimientos.";
-    } catch {
-      $3("[data-state]").textContent = "No se pudo cargar el presupuesto. Intenta actualizar.";
+      paint();
+      $3("[data-state]").textContent = "Saldo actualizado. " + rows2.filter((r) => !r.deletedAt).length + " movimientos cargados.";
+    } catch (e) {
+      $3("[data-state]").textContent = e.message || "No se pudo cargar el presupuesto.";
     } finally {
       loading = false;
     }
   }
-  function open(kind2) {
-    type = kind2;
-    id = crypto.randomUUID();
+  function open(type, row) {
+    item = row || { id: crypto.randomUUID(), version: 0 };
+    actionId = crypto.randomUUID();
+    confirmDelete = false;
     d("form").reset();
-    d("[data-title]").textContent = kind2 === "income" ? "Ingresar al presupuesto" : "Gastar del presupuesto";
+    d("[name=type]").value = type;
+    d("[name=recordedBy]").value = row?.recordedBy || "";
+    d("[name=amount]").value = row ? (row.amountMinor / 100).toFixed(2) : "";
+    d("[name=reason]").value = row?.reason || "";
+    d("[name=type]").disabled = row?.source === "commission";
+    d("[name=amount]").readOnly = row?.source === "commission";
+    d("[data-title]").textContent = row ? "Editar movimiento" : type === "income" ? "Ingresar al presupuesto" : "Gastar del presupuesto";
+    d("[data-note]").textContent = row?.source === "commission" ? "Para corregir el importe, elimina este pago y vuelve a registrarlo en Comisiones. Al eliminarlo, las ventas quedan pendientes de pago nuevamente." : "";
     d("[data-error]").textContent = "";
+    d("[data-delete]").hidden = !row;
+    d("[data-delete]").textContent = "Eliminar movimiento";
     dialog.showModal();
+  }
+  async function save(action) {
+    if (busy) return;
+    busy = true;
+    for (const el of dialog.querySelectorAll("button")) el.disabled = true;
+    try {
+      await call("ownerBudget", { action, id: item.id, version: item.version || 0, actionId, type: d("[name=type]").value, recordedBy: d("[name=recordedBy]").value, amount: d("[name=amount]").value.trim(), reason: d("[name=reason]").value.trim() });
+      dialog.close();
+      await load();
+    } catch (e) {
+      d("[data-error]").textContent = e.message || "No se pudo guardar.";
+    } finally {
+      busy = false;
+      for (const el of dialog.querySelectorAll("button")) el.disabled = false;
+    }
   }
   $3("[data-income]").onclick = () => open("income");
   $3("[data-expense]").onclick = () => open("expense");
   $3("[data-refresh]").onclick = () => load();
   $3("[data-more]").onclick = () => load(true);
+  $3("[data-filter]").onchange = paint;
+  $3("[data-search]").oninput = paint;
   d("[data-cancel]").onclick = () => {
     if (!busy) dialog.close();
   };
   dialog.addEventListener("cancel", (e) => {
     if (busy) e.preventDefault();
   });
-  d("form").onsubmit = async (e) => {
+  d("form").onsubmit = (e) => {
     e.preventDefault();
-    if (busy) return;
-    busy = true;
-    for (const el of dialog.querySelectorAll("button,input,textarea")) el.disabled = true;
-    try {
-      await call("ownerBudget", { action: "save", id, type, amount: d("[name=amount]").value.trim(), reason: d("[name=reason]").value.trim() });
-      dialog.close();
-      await load();
-    } catch (e2) {
-      d("[data-error]").textContent = e2.message || "No se pudo registrar. Reintenta sin cerrar esta ventana.";
-    } finally {
-      busy = false;
-      for (const el of dialog.querySelectorAll("button,input,textarea")) el.disabled = false;
-    }
+    save("save");
   };
+  d("[data-delete]").onclick = () => {
+    if (!confirmDelete) {
+      confirmDelete = true;
+      actionId = crypto.randomUUID();
+      d("[data-delete]").textContent = "Confirmar eliminaci\xF3n";
+      d("[data-error]").textContent = "El saldo se ajustar\xE1 al eliminar este movimiento. Se solicitar\xE1 la clave exclusiva del due\xF1o.";
+    } else save("delete");
+  };
+  document.addEventListener("owner:budget-refresh", () => load());
   const activate = () => {
     if (!document.getElementById("dashboard").hidden && !ready) {
       ready = true;
@@ -90,7 +156,7 @@ function attendanceDays(rows2) {
     let start2 = row.start;
     while (start2 < row.end) {
       const day = new Date(start2 - 216e5).toISOString().slice(0, 10), next = Date.parse(day + "T00:00:00-06:00") + 864e5, end = Math.min(row.end, next);
-      (result[day] ??= []).push({ ...row, start: start2, end });
+      (result[day] ?? (result[day] = [])).push({ ...row, start: start2, end });
       start2 = end;
     }
   }
@@ -289,6 +355,7 @@ function initAdminShell() {
   }
   function enhance() {
     for (const table of document.querySelectorAll("table")) {
+      if (table.closest("[hidden]")) continue;
       if (!table.dataset.adaptive) {
         table.dataset.adaptive = "true";
         table.classList.add("adaptive-table");
@@ -307,7 +374,7 @@ function initAdminShell() {
         if (row.dataset.adaptive || row.cells.length < 2) continue;
         row.dataset.adaptive = "true";
         const cells = [...row.cells], body = row.parentElement.id;
-        let primary = body === "history-rows" || body === "seller-sales-rows" ? [2, 4] : body === "rows" ? [0, 1, 5] : body === "ad-rows" ? [1, 2] : body === "seller-rows" ? [0, 2] : [0, 1];
+        let primary = body === "history-rows" || body === "seller-sales-rows" ? [2, 4] : body === "rows" ? [0, 1, 5] : body === "budget-rows" ? [1, 4] : body === "ad-rows" ? [1, 2] : body === "seller-rows" ? [0, 2] : [0, 1];
         cells.forEach((cell, i) => {
           cell.dataset.label = labels[i] || "Detalle";
           cell.classList.toggle("row-primary", primary.includes(i));
@@ -614,11 +681,17 @@ function initDeliveryEditor({ call, onSaved }) {
 }
 
 // outputs/pitstop-owner/dist/change-key.js
-function requestChangeKey() {
+function requestChangeKey(deletion = false) {
   return new Promise((resolve, reject) => {
     const dialog = document.createElement("dialog");
     dialog.className = "change-key-dialog";
     dialog.innerHTML = '<form><h2>Autorizar cambio</h2><p>Introduce la clave del administrador para realizar esta acci\xF3n.</p><label>Clave del administrador<input type="password" required maxlength="128" autocomplete="off" autofocus></label><div class="management-actions"><button type="button">Cancelar</button><button type="submit" class="primary">Confirmar cambio</button></div></form>';
+    if (deletion) {
+      dialog.querySelector("h2").textContent = "Autorizar eliminaci\xF3n";
+      dialog.querySelector("p").textContent = "Introduce la clave exclusiva del due\xF1o para eliminar este movimiento.";
+      dialog.querySelector("label").firstChild.textContent = "Clave de eliminaci\xF3n";
+      dialog.querySelector("button[type=submit]").textContent = "Autorizar eliminaci\xF3n";
+    }
     const finish = (value) => {
       dialog.querySelector("input").value = "";
       dialog.close();
@@ -643,10 +716,10 @@ function requestChangeKey() {
 function initAdvertising(call, reload) {
   const dialog = document.createElement("dialog");
   dialog.className = "multi-dialog";
-  dialog.innerHTML = '<form><div class="multi-heading"><h2>Gasto en publicidad</h2><button type="button" data-close>Cerrar \xD7</button></div><label>Fecha<input data-day type="date" required></label><label>Descripci\xF3n<input data-description maxlength="180" required placeholder="Ej. Campa\xF1a de Instagram"></label><label>Moneda<select data-currency><option value="CRC">Colones</option><option value="USD">D\xF3lares</option></select></label><label>Monto<input data-amount inputmode="decimal" required placeholder="Sin separadores de miles"></label><label>Tipo de cambio (colones por US$ 1)<input data-rate inputmode="decimal" required></label><p>Esta tasa se guarda para comparar el gasto en ambas monedas.</p><button class="button" type="submit">Guardar gasto</button><button type="button" data-delete hidden>Eliminar gasto</button><p data-state role="status"></p></form>';
+  dialog.innerHTML = '<form><div class="multi-heading"><h2>Gasto en publicidad</h2><button type="button" data-close>Cerrar \xD7</button></div><label>Registrado por<select data-manager required><option value="">Seleccionar responsable</option><option>Isaac</option><option>Jean</option><option>Esteban</option></select></label><label>Fecha<input data-day type="date" required></label><label>Descripci\xF3n<input data-description maxlength="180" required placeholder="Ej. Campa\xF1a de Instagram"></label><label>Moneda<select data-currency><option value="CRC">Colones</option><option value="USD">D\xF3lares</option></select></label><label>Monto<input data-amount inputmode="decimal" required placeholder="Sin separadores de miles"></label><label>Tipo de cambio (colones por US$ 1)<input data-rate inputmode="decimal" required></label><p>Esta tasa se guarda para comparar el gasto en ambas monedas.</p><button class="button" type="submit">Guardar gasto</button><button type="button" data-delete hidden>Eliminar gasto</button><p data-state role="status"></p></form>';
   document.body.append(dialog);
   const $3 = (s) => dialog.querySelector(s);
-  let item, busy = false, confirmDelete = false;
+  let item, busy = false, confirmDelete = false, actionId;
   const close = () => {
     if (!busy) dialog.close();
   };
@@ -658,9 +731,10 @@ function initAdvertising(call, reload) {
     if (busy) return;
     busy = true;
     try {
-      await call("ownerAdvertising", { id: item.id, version: item.version || 0, action, day: $3("[data-day]").value, description: $3("[data-description]").value, amount: $3("[data-amount]").value.trim(), currency: $3("[data-currency]").value, rate: $3("[data-rate]").value.trim() });
+      await call("ownerAdvertising", { id: item.id, version: item.version || 0, action, actionId, recordedBy: $3("[data-manager]").value, day: $3("[data-day]").value, description: $3("[data-description]").value, amount: $3("[data-amount]").value.trim(), currency: $3("[data-currency]").value, rate: $3("[data-rate]").value.trim() });
       dialog.close();
       await reload();
+      document.dispatchEvent(new Event("owner:budget-refresh"));
     } catch (e) {
       $3("[data-state]").textContent = e.message || "No se pudo guardar. Actualiza el panel.";
     } finally {
@@ -674,14 +748,17 @@ function initAdvertising(call, reload) {
   $3("[data-delete]").onclick = () => {
     if (!confirmDelete) {
       confirmDelete = true;
+      actionId = crypto.randomUUID();
       $3("[data-delete]").textContent = "Confirmar eliminaci\xF3n";
-      $3("[data-state]").textContent = "El gasto dejar\xE1 de sumar; se conserva un registro de auditor\xEDa.";
+      $3("[data-state]").textContent = "Se devolver\xE1 el monto al presupuesto. Se pedir\xE1 la clave exclusiva de eliminaci\xF3n.";
     } else save("delete");
   };
   function open(row) {
     item = row || { id: crypto.randomUUID(), version: 0 };
     confirmDelete = false;
+    actionId = crypto.randomUUID();
     $3("form").reset();
+    $3("[data-manager]").value = row?.recordedBy || "";
     $3("[data-state]").textContent = "";
     $3("[data-delete]").hidden = !row;
     $3("[data-delete]").textContent = "Eliminar gasto";
@@ -969,7 +1046,7 @@ ${content}endstream`);
   const x = size;
   add(`xref
 0 ${offsets.length}
-0000000000 65535 f 
+0000000000 65535 f
 `);
   for (let i = 1; i < offsets.length; i++) add(String(offsets[i]).padStart(10, "0") + " 00000 n \n");
   add(`trailer
@@ -1237,7 +1314,7 @@ function initMultipleSale({ call, context = () => ({}), check = () => true, owne
     $3("[data-fields]").disabled = true;
     $3("[data-status]").textContent = "Guardando venta\u2026";
     try {
-      requestId ??= crypto.randomUUID();
+      requestId ?? (requestId = crypto.randomUUID());
       const payload = { ...context(), paidAmount: $3("[data-paid]").value.trim(), paymentCurrency: $3("[data-usd]").checked ? "USD" : "CRC", requestId, items: [...selected.values()].map((r) => ({ id: r.id, quoteVersion: r.quoteVersion })), ...sale ? { saleId: sale.id, version: sale.version } : { customer: { phone, name: $3("[data-name]").value.trim(), address: $3("[data-address]").value.trim() }, receipt: await receiptFile($3("[data-receipt]").files[0]) } };
       const { data } = await call("saveMultipleSale", payload);
       documentData = { ...data.paymentDocument, trackingCode: data.trackingCode };
@@ -1419,7 +1496,7 @@ function initTestimonials({ call }) {
     const stamp = generation2;
     $3("testimonial-fields").disabled = true;
     $3("testimonial-state").textContent = "Publicando\u2026";
-    requestId ??= crypto.randomUUID();
+    requestId ?? (requestId = crypto.randomUUID());
     try {
       const image = await receiptFile($3("testimonial-image").files[0]);
       if (!image) throw new Error();
@@ -1998,12 +2075,16 @@ async function start() {
     auth = authentication.getAuth(firebase);
     await authentication.setPersistence(auth, authentication.browserSessionPersistence);
     api = (name) => async (data = {}) => {
-      const write = name === "ownerBudget" && data.action === "save" || ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerSellers" && data.action !== "list" || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
-      const payload = write ? { ...data, changeKey: await requestChangeKey() } : data;
+      const write = name === "ownerBudget" && data.action !== "list" || ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerSellers" && data.action !== "list" || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
+      const deletion = ["ownerBudget", "ownerAdvertising"].includes(name) && data.action === "delete";
+      const payload = write ? { ...data, [deletion ? "deleteKey" : "changeKey"]: await requestChangeKey(deletion) } : data;
       try {
         return await functions.httpsCallable(functions.getFunctions(firebase, region), name)(payload);
       } finally {
-        if (write) delete payload.changeKey;
+        if (write) {
+          delete payload.changeKey;
+          delete payload.deleteKey;
+        }
       }
     };
     await authentication.signInAnonymously(auth);

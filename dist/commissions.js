@@ -39,6 +39,7 @@ function initAdminShell() {
   }
   function enhance() {
     for (const table of document.querySelectorAll("table")) {
+      if (table.closest("[hidden]")) continue;
       if (!table.dataset.adaptive) {
         table.dataset.adaptive = "true";
         table.classList.add("adaptive-table");
@@ -57,7 +58,7 @@ function initAdminShell() {
         if (row.dataset.adaptive || row.cells.length < 2) continue;
         row.dataset.adaptive = "true";
         const cells = [...row.cells], body = row.parentElement.id;
-        let primary = body === "history-rows" || body === "seller-sales-rows" ? [2, 4] : body === "rows" ? [0, 1, 5] : body === "ad-rows" ? [1, 2] : body === "seller-rows" ? [0, 2] : [0, 1];
+        let primary = body === "history-rows" || body === "seller-sales-rows" ? [2, 4] : body === "rows" ? [0, 1, 5] : body === "budget-rows" ? [1, 4] : body === "ad-rows" ? [1, 2] : body === "seller-rows" ? [0, 2] : [0, 1];
         cells.forEach((cell, i) => {
           cell.dataset.label = labels[i] || "Detalle";
           cell.classList.toggle("row-primary", primary.includes(i));
@@ -104,11 +105,17 @@ var region = "us-central1";
 var appCheckSiteKey = "6LeDqMotAAAAAJ_CNs1-e59S8--oW2IQP43-1n1O";
 
 // outputs/pitstop-owner/dist/change-key.js
-function requestChangeKey() {
+function requestChangeKey(deletion = false) {
   return new Promise((resolve, reject) => {
     const dialog = document.createElement("dialog");
     dialog.className = "change-key-dialog";
     dialog.innerHTML = '<form><h2>Autorizar cambio</h2><p>Introduce la clave del administrador para realizar esta acci\xF3n.</p><label>Clave del administrador<input type="password" required maxlength="128" autocomplete="off" autofocus></label><div class="management-actions"><button type="button">Cancelar</button><button type="submit" class="primary">Confirmar cambio</button></div></form>';
+    if (deletion) {
+      dialog.querySelector("h2").textContent = "Autorizar eliminaci\xF3n";
+      dialog.querySelector("p").textContent = "Introduce la clave exclusiva del due\xF1o para eliminar este movimiento.";
+      dialog.querySelector("label").firstChild.textContent = "Clave de eliminaci\xF3n";
+      dialog.querySelector("button[type=submit]").textContent = "Autorizar eliminaci\xF3n";
+    }
     const finish = (value) => {
       dialog.querySelector("input").value = "";
       dialog.close();
@@ -264,6 +271,8 @@ $("record-payment").onclick = () => {
   if (!data || !selected.size || !$("payment-day").value) return status("Seleccion\xE1 ventas y fecha de pago.");
   $("confirm-text").textContent = $("seller").value + " \xB7 " + $("selected-total").textContent + " \xB7 " + data.bps / 100 + "% sobre el total de cada venta.";
   payRequest = { action: "pay", seller: $("seller").value, currency: $("commission-currency").value, bps: data.bps, saleIds: [...selected], totals: Object.fromEntries(visible.filter((s) => selected.has(s.id)).map((s) => [s.id, s.amount.totalMinor])), day: $("payment-day").value, requestId: crypto.randomUUID() };
+  $("confirm-error").textContent = "";
+  $("payment-manager").value = "";
   $("payment-confirm").showModal();
 };
 $("cancel-payment").onclick = () => $("payment-confirm").close();
@@ -272,12 +281,17 @@ $("payment-confirm").addEventListener("cancel", (e) => {
 });
 $("confirm-payment").onclick = async () => {
   if (busy) return;
+  if (!$("payment-manager").value) {
+    $("confirm-error").textContent = "Selecciona qui\xE9n registra el pago.";
+    return;
+  }
+  payRequest.recordedBy = $("payment-manager").value;
   lock(true);
   try {
     await call(payRequest, true);
     $("payment-confirm").close();
     await load();
-    status("Pago registrado. Las ventas seleccionadas pasaron al historial.");
+    status("Pago registrado. Las ventas pasaron al historial y la comisi\xF3n se descont\xF3 del presupuesto.");
   } catch (e) {
     status(e.message);
     $("payment-confirm").close();
