@@ -1,0 +1,16 @@
+.calculator-locked body> :not(#calculator-login):not(script):not(noscript){display:none!important}
+#calculator-login[hidden]{display:none}
+#calculator-login{min-height:100svh;display:grid;place-items:center;padding:24px;background:#0b1420;color:#f6f7fa}
+#calculator-login form{width:min(100%,420px);padding:32px;border:1px solid #304056;border-top:3px solid #ed1036;border-radius:24px;background:#192637;box-sizing:border-box;box-shadow:0 24px 80px #0004}
+#calculator-login .login-brand{color:#ff3151;font-weight:800;letter-spacing:2px;font-size:13px}
+#calculator-login h1{font-size:32px;margin:12px 0}
+#calculator-login p{color:#bac7d9;line-height:1.6}
+#calculator-login label{display:block;margin:18px 0 8px}
+#calculator-login input[type=password],#calculator-login select{box-sizing:border-box;width:100%;min-height:50px;background:#0d1928;border:1px solid #516078;border-radius:12px;color:white;padding:12px;font-size:16px}
+#calculator-login .login-remember{display:flex;align-items:center;gap:10px;font-size:14px;min-height:44px}
+#calculator-login input[type=checkbox]{width:20px;height:20px;accent-color:#ed1036}
+#calculator-login button{width:100%;min-height:50px;border:0;border-radius:12px;background:#ed1036;color:white;font-size:16px;font-weight:700;cursor:pointer}
+#calculator-login button:disabled{opacity:.6}
+#calculator-login [role=alert]{color:#ff9eac;min-height:24px;font-size:14px}
+
+.access-calendar{margin:24px 0;padding:20px;border:1px solid #354459;border-radius:20px;min-width:0}.access-calendar[hidden]{display:none}.access-calendar input{font-size:16px;min-height:44px;max-width:100%;box-sizing:border-box}.access-week,.access-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}.access-week{margin:20px 0 8px;text-align:center;color:#aabbd0}.access-grid button{min-width:0;min-height:52px;padding:5px 2px;font-size:15px}.access-grid small{display:block;font-size:10px;overflow:hidden}.access-grid .has-access{border-color:#ef1745}.access-grid [aria-pressed=true]{background:#ed1036;color:#fff}.access-details article{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 0;border-bottom:1px solid #354459}.access-details span{color:#b6c5d9}.access-details h3{font-size:18px}#view-period-sales{margin-top:16px;min-height:44px;align-self:flex-start}@media(max-width:440px){.access-calendar{padding:10px}.access-grid{gap:3px}.access-grid small{font-size:8px}.team-actions{flex-wrap:wrap}}

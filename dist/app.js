@@ -1,3 +1,175 @@
+// outputs/pitstop-owner/dist/daily-access-ui.js
+async function unlockCalculator(call, auth2, sdk, { endpoint = "calculatorAccess", names } = {}) {
+  const panel = document.getElementById("calculator-login"), form = panel.querySelector("form"), password = panel.querySelector("input[type=password]"), remember = panel.querySelector("input[type=checkbox]"), error = panel.querySelector("[role=alert]"), button = panel.querySelector("button");
+  const actor = document.createElement("select");
+  actor.required = true;
+  actor.setAttribute("aria-label", "Tu nombre");
+  actor.append(new Option("Selecciona tu nombre", ""));
+  const label = document.createElement("label");
+  label.textContent = "Tu nombre";
+  label.append(actor);
+  password.parentNode.insertBefore(label, password.previousElementSibling);
+  try {
+    const people = names || (await call("ownerSellers")({ action: "list" })).data.names;
+    for (const name of people) actor.add(new Option(name, name));
+    try {
+      actor.value = localStorage.getItem(endpoint + "-actor") || "";
+    } catch {
+    }
+  } catch {
+    error.textContent = "No se pudo cargar el equipo. Recarga la p\xE1gina.";
+  }
+  let expires = 0, pending;
+  const lock = () => {
+    document.querySelectorAll("dialog[open]").forEach((d) => d.close());
+    document.documentElement.classList.add("calculator-locked");
+    panel.hidden = false;
+    password.focus();
+  };
+  const accept = (data) => {
+    expires = Date.now() + data.expiresAt - data.serverNow;
+    panel.hidden = true;
+    document.documentElement.classList.remove("calculator-locked");
+  };
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (button.disabled) return;
+    button.disabled = true;
+    error.textContent = "";
+    try {
+      const { data } = await call(endpoint)({ action: "login", password: password.value, actor: actor.value });
+      await sdk.setPersistence(auth2, remember.checked ? sdk.browserLocalPersistence : sdk.browserSessionPersistence);
+      try {
+        localStorage.setItem(endpoint + "-actor", actor.value);
+      } catch {
+      }
+      password.value = "";
+      accept(data);
+      pending?.();
+      pending = null;
+    } catch (e2) {
+      error.textContent = e2.code === "functions/permission-denied" ? "Contrase\xF1a incorrecta." : e2.code === "functions/resource-exhausted" ? "Demasiados intentos. Espera 15 minutos." : "No se pudo ingresar. Revisa tu conexi\xF3n e intenta nuevamente.";
+    } finally {
+      button.disabled = false;
+    }
+  });
+  const wait = () => new Promise((resolve) => {
+    pending = resolve;
+    lock();
+  });
+  try {
+    const { data } = await call(endpoint)({ action: "status" });
+    if (data.valid) accept(data);
+    else await wait();
+  } catch {
+    error.textContent = "No se pudo verificar el acceso. Ingresa nuevamente.";
+    await wait();
+  }
+  const check = () => {
+    if (Date.now() >= expires) lock();
+  };
+  setInterval(check, 15e3);
+  document.addEventListener("visibilitychange", check);
+  window.addEventListener("focus", check);
+  return async (name, data) => {
+    if (Date.now() >= expires) {
+      lock();
+      throw Error("Ingresa la contrase\xF1a de hoy.");
+    }
+    try {
+      return await call(name)(data);
+    } catch (e) {
+      if (e.code === "functions/permission-denied") {
+        const { data: status } = await call(endpoint)({ action: "status" });
+        if (!status.valid) lock();
+      }
+      throw e;
+    }
+  };
+}
+
+// outputs/pitstop-owner/dist/access-logs-ui.js
+function initAccessLogs(call) {
+  const team = document.getElementById("sellers-panel");
+  if (!team) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Ingresos al sistema";
+  button.setAttribute("aria-expanded", "false");
+  team.querySelector(".team-actions").append(button);
+  const panel = document.createElement("section");
+  panel.className = "access-calendar";
+  panel.hidden = true;
+  panel.innerHTML = '<h2>Ingresos al sistema</h2><p class="muted">Accesos con contrase\xF1a desde la activaci\xF3n de este registro. El nombre es el seleccionado al ingresar; la contrase\xF1a es compartida. Horario de Costa Rica.</p><label>Mes<input type="month" aria-label="Mes de ingresos"></label><p role="status"></p><div class="access-week" aria-hidden="true"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div><div class="access-grid"></div><div class="access-details"></div>';
+  team.querySelector(".team-actions").after(panel);
+  const month = panel.querySelector("input"), state = panel.querySelector("[role=status]"), grid = panel.querySelector(".access-grid"), details = panel.querySelector(".access-details");
+  let rows2 = [], selected = new Date(Date.now() - 216e5).toISOString().slice(0, 10), generation2 = 0;
+  month.value = selected.slice(0, 7);
+  function drawDetails(day) {
+    selected = day;
+    details.replaceChildren();
+    const h = document.createElement("h3");
+    h.textContent = "Ingresos del " + day.split("-").reverse().join("/");
+    details.append(h);
+    for (const b of grid.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.day === day));
+    const list = rows2.filter((r) => r.day === day).sort((a, b) => b.at - a.at);
+    if (!list.length) {
+      const p = document.createElement("p");
+      p.textContent = "Sin ingresos registrados este d\xEDa.";
+      details.append(p);
+    }
+    for (const row of list) {
+      const card = document.createElement("article"), name = document.createElement("strong"), meta = document.createElement("span");
+      name.textContent = row.actor;
+      meta.textContent = new Date(row.at).toLocaleTimeString("es-CR", { timeZone: "America/Costa_Rica", hour: "2-digit", minute: "2-digit" }) + " \xB7 " + (row.system === "admin" ? "Administrador" : "Calculadora");
+      card.append(name, meta);
+      details.append(card);
+    }
+  }
+  function draw() {
+    grid.replaceChildren();
+    const [y, m] = month.value.split("-").map(Number), offset = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7;
+    for (let i = 0; i < offset; i++) grid.append(document.createElement("span"));
+    for (let n = 1; n <= new Date(Date.UTC(y, m, 0)).getUTCDate(); n++) {
+      const day = month.value + "-" + String(n).padStart(2, "0"), count = rows2.filter((r) => r.day === day).length, b = document.createElement("button");
+      b.type = "button";
+      b.dataset.day = day;
+      b.textContent = String(n);
+      b.setAttribute("aria-label", day.split("-").reverse().join("/") + ": " + count + " ingresos");
+      if (count) {
+        b.classList.add("has-access");
+        const small = document.createElement("small");
+        small.textContent = count + " ingresos";
+        b.append(small);
+      }
+      b.onclick = () => drawDetails(day);
+      grid.append(b);
+    }
+    drawDetails(selected.startsWith(month.value) ? selected : month.value + "-01");
+  }
+  async function load() {
+    const g = ++generation2;
+    state.textContent = "Cargando ingresos\u2026";
+    try {
+      const { data } = await call("ownerAccessLogs", { month: month.value });
+      if (g !== generation2) return;
+      rows2 = data.rows;
+      draw();
+      state.textContent = data.truncated ? "Se muestran los primeros 2.000 ingresos del mes." : rows2.length + " ingresos en el mes.";
+    } catch {
+      state.textContent = "No se pudieron consultar los ingresos. Vuelve a abrir esta secci\xF3n para intentar nuevamente.";
+    }
+  }
+  button.onclick = () => {
+    panel.hidden = !panel.hidden;
+    button.setAttribute("aria-expanded", String(!panel.hidden));
+    if (!panel.hidden) load();
+  };
+  month.onchange = () => {
+    if (month.value) load();
+  };
+}
+
 // outputs/pitstop-owner/dist/budget-ui.js
 function initBudget(call) {
   const host = document.getElementById("admin-business");
@@ -1046,7 +1218,7 @@ ${content}endstream`);
   const x = size;
   add(`xref
 0 ${offsets.length}
-0000000000 65535 f
+0000000000 65535 f 
 `);
   for (let i = 1; i < offsets.length; i++) add(String(offsets[i]).padStart(10, "0") + " 00000 n \n");
   add(`trailer
@@ -1927,7 +2099,7 @@ async function loadOverview() {
     $2("seller-day").min = data.period.from;
     renderOverview(data, $2("currency").value);
     $2("dashboard").hidden = false;
-    $2("logout").hidden = true;
+    $2("logout").hidden = false;
     $2("account").textContent = "Vista de administraci\xF3n";
     $2("login-panel").hidden = true;
     notice("Actualizado. " + data.period.label + " \xB7 " + data.period.from + " al " + data.period.to);
@@ -1996,8 +2168,7 @@ $2("logout").addEventListener("click", async () => {
   try {
     await api("ownerLock")({});
     await authApi.signOut(auth);
-    await authApi.signInAnonymously(auth);
-    notice("Panel bloqueado. Introduce la clave para volver a entrar.");
+    location.reload();
   } catch {
     await authApi.signOut(auth);
     notice("Acceso cerrado en este navegador. Recarga la p\xE1gina para entrar.");
@@ -2073,13 +2244,16 @@ async function start() {
     check.initializeAppCheck(firebase, { provider: new check.ReCaptchaEnterpriseProvider(appCheckSiteKey), isTokenAutoRefreshEnabled: true });
     authApi = authentication;
     auth = authentication.getAuth(firebase);
-    await authentication.setPersistence(auth, authentication.browserSessionPersistence);
+    await auth.authStateReady();
+    if (!auth.currentUser) await authentication.signInAnonymously(auth);
+    const raw = (name) => functions.httpsCallable(functions.getFunctions(firebase, region), name);
+    const secured = await unlockCalculator(raw, auth, authentication, { endpoint: "ownerSession", names: ["Isaac", "Jean", "Esteban"] });
     api = (name) => async (data = {}) => {
       const write = name === "ownerBudget" && data.action !== "list" || ["ownerChangeSale", "ownerDeleteCalculation", "ownerAdvertising", "saveMultipleSale"].includes(name) || name === "ownerSellers" && data.action !== "list" || name === "ownerTestimonials" && data.action !== "list" || name === "ownerPush" && data.action !== "config";
       const deletion = ["ownerBudget", "ownerAdvertising"].includes(name) && data.action === "delete";
       const payload = write ? { ...data, [deletion ? "deleteKey" : "changeKey"]: await requestChangeKey(deletion) } : data;
       try {
-        return await functions.httpsCallable(functions.getFunctions(firebase, region), name)(payload);
+        return await secured(name, payload);
       } finally {
         if (write) {
           delete payload.changeKey;
@@ -2343,3 +2517,12 @@ setInterval(refreshVisibleOverview, 6e4);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") refreshVisibleOverview();
 });
+initAccessLogs((name, data) => api(name)(data));
+document.getElementById("view-period-sales").onclick = () => {
+  if (!overview) return;
+  document.getElementById("from").value = overview.period.from;
+  document.getElementById("to").value = overview.period.to;
+  document.getElementById("history-seller").value = "";
+  document.getElementById("history-nav").click();
+  document.getElementById("sales-tab").click();
+};

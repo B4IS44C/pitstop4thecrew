@@ -1,3 +1,93 @@
+// outputs/pitstop-owner/dist/daily-access-ui.js
+async function unlockCalculator(call2, auth, sdk, { endpoint = "calculatorAccess", names } = {}) {
+  const panel = document.getElementById("calculator-login"), form = panel.querySelector("form"), password = panel.querySelector("input[type=password]"), remember = panel.querySelector("input[type=checkbox]"), error = panel.querySelector("[role=alert]"), button = panel.querySelector("button");
+  const actor = document.createElement("select");
+  actor.required = true;
+  actor.setAttribute("aria-label", "Tu nombre");
+  actor.append(new Option("Selecciona tu nombre", ""));
+  const label = document.createElement("label");
+  label.textContent = "Tu nombre";
+  label.append(actor);
+  password.parentNode.insertBefore(label, password.previousElementSibling);
+  try {
+    const people = names || (await call2("ownerSellers")({ action: "list" })).data.names;
+    for (const name of people) actor.add(new Option(name, name));
+    try {
+      actor.value = localStorage.getItem(endpoint + "-actor") || "";
+    } catch {
+    }
+  } catch {
+    error.textContent = "No se pudo cargar el equipo. Recarga la p\xE1gina.";
+  }
+  let expires = 0, pending;
+  const lock2 = () => {
+    document.querySelectorAll("dialog[open]").forEach((d) => d.close());
+    document.documentElement.classList.add("calculator-locked");
+    panel.hidden = false;
+    password.focus();
+  };
+  const accept = (data2) => {
+    expires = Date.now() + data2.expiresAt - data2.serverNow;
+    panel.hidden = true;
+    document.documentElement.classList.remove("calculator-locked");
+  };
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (button.disabled) return;
+    button.disabled = true;
+    error.textContent = "";
+    try {
+      const { data: data2 } = await call2(endpoint)({ action: "login", password: password.value, actor: actor.value });
+      await sdk.setPersistence(auth, remember.checked ? sdk.browserLocalPersistence : sdk.browserSessionPersistence);
+      try {
+        localStorage.setItem(endpoint + "-actor", actor.value);
+      } catch {
+      }
+      password.value = "";
+      accept(data2);
+      pending?.();
+      pending = null;
+    } catch (e2) {
+      error.textContent = e2.code === "functions/permission-denied" ? "Contrase\xF1a incorrecta." : e2.code === "functions/resource-exhausted" ? "Demasiados intentos. Espera 15 minutos." : "No se pudo ingresar. Revisa tu conexi\xF3n e intenta nuevamente.";
+    } finally {
+      button.disabled = false;
+    }
+  });
+  const wait = () => new Promise((resolve) => {
+    pending = resolve;
+    lock2();
+  });
+  try {
+    const { data: data2 } = await call2(endpoint)({ action: "status" });
+    if (data2.valid) accept(data2);
+    else await wait();
+  } catch {
+    error.textContent = "No se pudo verificar el acceso. Ingresa nuevamente.";
+    await wait();
+  }
+  const check = () => {
+    if (Date.now() >= expires) lock2();
+  };
+  setInterval(check, 15e3);
+  document.addEventListener("visibilitychange", check);
+  window.addEventListener("focus", check);
+  return async (name, data2) => {
+    if (Date.now() >= expires) {
+      lock2();
+      throw Error("Ingresa la contrase\xF1a de hoy.");
+    }
+    try {
+      return await call2(name)(data2);
+    } catch (e) {
+      if (e.code === "functions/permission-denied") {
+        const { data: status2 } = await call2(endpoint)({ action: "status" });
+        if (!status2.valid) lock2();
+      }
+      throw e;
+    }
+  };
+}
+
 // outputs/pitstop-owner/dist/admin-shell.js
 function initAdminShell() {
   const $2 = (id) => document.getElementById(id), business = $2("admin-business");
@@ -306,8 +396,10 @@ async function start() {
     const app = a.initializeApp(firebaseConfig);
     d.initializeAppCheck(app, { provider: new d.ReCaptchaEnterpriseProvider(appCheckSiteKey), isTokenAutoRefreshEnabled: true });
     const auth = b.getAuth(app);
-    await b.setPersistence(auth, b.browserSessionPersistence);
-    await b.signInAnonymously(auth);
+    await auth.authStateReady();
+    if (!auth.currentUser) await b.signInAnonymously(auth);
+    const raw = (name) => c.httpsCallable(c.getFunctions(app, region), name);
+    const secured = await unlockCalculator(raw, auth, b, { endpoint: "ownerSession", names: ["Isaac", "Jean", "Esteban"] });
     const team = (await c.httpsCallable(c.getFunctions(app, region), "ownerSellers")({ action: "list" })).data.allNames;
     $("seller").replaceChildren(...team.map((name) => new Option(name, name)));
     const fn = c.httpsCallable(c.getFunctions(app, region), "ownerCommissions");
@@ -315,7 +407,7 @@ async function start() {
       const input = { ...payload };
       if (write) input.changeKey = await requestChangeKey();
       try {
-        return (await fn(input)).data;
+        return (await secured("ownerCommissions", input)).data;
       } finally {
         delete input.changeKey;
       }
